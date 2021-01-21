@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 
 
 def generate_distribution(dist, params, n_samples):
+    """Return distribution with given parameters and number of samples."""
     if dist == 'normal':
         return normal(*params, n_samples)
     elif dist == 'binomial':
@@ -17,10 +18,12 @@ def generate_distribution(dist, params, n_samples):
 
 
 class ABtest:
+    """Perform AB-test"""
     def __init__(self):
         self.power = {}
 
     def plot_distibutions(self, a, b, plot_path):
+        """Generate distributions and save plot on given path."""
         bins = np.linspace(-10, 10, 100)
         plt.hist(a, bins, alpha=0.5, label='control')
         plt.hist(b, bins, alpha=0.5, label='treatment')
@@ -31,17 +34,18 @@ class ABtest:
                           dist2:str='normal', dist2_params:tuple=(2, 1.1),
                           to_plot:bool=False, plot_path:str='./output/distributions.png',
                           to_save:bool=True, save_path:str='./data/test_dataset.csv'):
+        """Generate two datasets with given parameters for analysis."""
         n_samples_each = n_samples // 2
+        a_response = [*generate_distribution(dist1, dist1_params, n_samples_each)]
+        b_response = [*generate_distribution(dist2, dist2_params, n_samples_each)]
 
         self.dataset = pd.DataFrame(columns=['user_id', 'campaign_id', 'group', 'response'])
         self.dataset['user_id'] = range(n_samples)
         self.dataset['campaign_id'] = [randint(1, 50)] * n_samples
-
-        a_response = [*generate_distribution(dist1, dist1_params, n_samples_each)]
-        b_response = [*generate_distribution(dist2, dist2_params, n_samples_each)]
-
         self.dataset['group'] = ['control'] * n_samples_each + ['treatment'] * n_samples_each
         self.dataset['response'] = a_response + b_response
+        
+        # перемешиваем датафрейм для элемента случайности
         self.dataset = self.dataset.sample(frac=1)
 
         if to_save:
@@ -51,6 +55,7 @@ class ABtest:
             self.plot_distibutions(a_response, b_response, plot_path)
 
     def power_analysis(self, power:float=0.8, alpha:float=0.05, effect_size=None, n_samples=None):
+        """Perform power analysis and return computed parameter which was initialised as None."""
         self.alpha = alpha
 
         # TODO: переписать функцию, чтобы возвращала словарь со всеми параметрами + подсчитанный новый
@@ -66,6 +71,7 @@ class ABtest:
         return result
 
     def run_simulation(self, output_path='./data/sim_output.xlsx'):
+        """Run simulations and save results into file."""
         output = pd.DataFrame(columns=['iteration', 'control', 'treatment', 'statistic', 'pvalue', 'inference'])
         for row_index in range(1, self.dataset.shape[0]):
             series = {'iteration': row_index, 'control': 0, 'treatment': 0, 'statistic': '',
