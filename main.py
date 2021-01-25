@@ -1,5 +1,5 @@
 import numpy as np
-from random import sample, randint
+from random import randint
 import pandas as pd
 from numpy.random import normal, binomial
 import statsmodels.stats.api as sms
@@ -57,8 +57,10 @@ class ABtest:
     def power_analysis(self, power:float=0.8, alpha:float=0.05, effect_size=None, n_samples=None):
         """Perform power analysis and return computed parameter which was initialised as None."""
         self.alpha = alpha
+        for arg in [*locals().keys()][1:]:
+            if eval(arg) is None:
+                unknown_arg = arg
 
-        # TODO: переписать функцию, чтобы возвращала словарь со всеми параметрами + подсчитанный новый
         result = sms.TTestIndPower().solve_power(
             effect_size=effect_size,
             power=power,
@@ -66,9 +68,21 @@ class ABtest:
             alpha=alpha,
             ratio=1
         )
-        result = int(math.ceil(result)) if n_samples is None else result
-        self.min_sample_size = result if n_samples is None else n_samples
-        return result
+        if unknown_arg == 'n_samples':
+            result = int(math.ceil(result))
+            self.min_sample_size = result
+        else:
+            result = round(result, 3)
+
+        output = {
+            'power': power,
+            'alpha': alpha,
+            'effect_size': effect_size,
+            'n_samples': n_samples
+        }
+        output[unknown_arg] = result
+
+        return output
 
     def run_simulation(self, output_path='./data/sim_output.xlsx'):
         """Run simulations and save results into file."""
@@ -101,7 +115,8 @@ class ABtest:
 if __name__ == '__main__':
     # Example scenario to use
     m = ABtest()
-    m.generate_datasets(n_samples=10000, to_save=True, to_plot=True,
+    m.generate_datasets(n_samples=10, to_save=False, to_plot=False,
                         dist1='normal', dist1_params=(-1.5, 1), dist2='normal', dist2_params=(2, 1))
-    print(m.power_analysis(effect_size=0.07))
+    print(m.power_analysis(effect_size=0.08))
+    print(m.power_analysis(n_samples=2000, effect_size=0.08, power=None))
     m.run_simulation()
