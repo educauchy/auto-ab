@@ -30,15 +30,15 @@ def read_file(path: str) -> pd.DataFrame:
 class ABtest:
     """Perform AB-test"""
     def __init__(self):
-        self.datasets = {}
+        self.datasets = { 'A': {}, 'B': {}, 'type': 'continuous'}
         self.power = {}
         self.campaigns = {}
 
     def plot_distributions(self, save_path: str=None) -> None:
         """Generate distributions and save plot on given path."""
         bins = np.linspace(-10, 10, 100)
-        plt.hist(self.datasets['A'], bins, alpha=0.5, label='control')
-        plt.hist(self.datasets['B'], bins, alpha=0.5, label='treatment')
+        plt.hist(self.datasets['A']['data'], bins, alpha=0.5, label='control')
+        plt.hist(self.datasets['B']['data'], bins, alpha=0.5, label='treatment')
         plt.legend(loc='upper right')
 
         if save_path is not None:
@@ -52,9 +52,14 @@ class ABtest:
         self.datasets['type'] = type
         df = read_file(path)
 
+        if 'timestamp' not in df.columns:
+            df['timestamp'] = range(df.shape[0])
+
         if confound is None:
-            self.datasets['A'] = df.loc[df[split_by] == 'control', output]
-            self.datasets['B'] = df.loc[df[split_by] == 'treatment', output]
+            self.datasets['A']['data'] = df.loc[df[split_by] == 'control', output]
+            self.datasets['A']['timestamp'] = df.loc[df[split_by] == 'control', 'timestamp']
+            self.datasets['B']['data'] = df.loc[df[split_by] == 'treatment', output]
+            self.datasets['B']['timestamp'] = df.loc[df[split_by] == 'treatment', 'timestamp']
 
     def generate_datasets(self, n_samples: int=20000, dist1: str='normal', dist1_params: tuple=(0, 1),
                           dist2: str='normal', dist2_params: tuple=(2, 1.1),
@@ -128,6 +133,9 @@ class ABtest:
         dataset = pd.concat([A, B])
         dataset.sort_values(by='timestamp', inplace=True)
 
+        # print(dataset.head())
+        print(pd.crosstab(dataset['group'], dataset['data']))
+
         for row_index in range(1, dataset.shape[0]):
             series = {'iteration': row_index, 'control': 0, 'treatment': 0, 'statistic': '',
                       'pvalue': '', 'inference': ''}
@@ -149,16 +157,16 @@ class ABtest:
                 series['pvalue'] = round(series['pvalue'], 4)
                 series['inference'] = 'Same' if series['pvalue'] > self.alpha else 'Different'
             output = output.append(pd.Series(series), ignore_index=True)
-            
+
         output.to_excel(output_path, index=False)
 
 
 if __name__ == '__main__':
     # Example scenario to use
     m = ABtest()
-    m.generate_datasets(n_samples=1000, dist1='normal', dist1_params=(-2, 1), dist2='normal', dist2_params=(4, 1.1))
-    m.load_dataset('./data/test_dataset.csv', type='continuous', output='response', split_by='group', confound=None)
-    m.plot_distributions(save_path='./output/AB_dists.png')
-    m.power_analysis(n_samples=500, effect_size=0.08, power=None)
+    m.generate_datasets(n_samples=1000, dist1='binomial', dist1_params=(1, .5), dist2='binomial', dist2_params=(1, .5))
+    # m.load_dataset('./data/test_dataset.csv', type='continuous', output='response', split_by='group', confound=None)
+    # m.plot_distributions(save_path='./output/AB_dists.png')
+    print(m.power_analysis(n_samples=200, effect_size=0.08, power=None))
     m.run_simulation()
 
