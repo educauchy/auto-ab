@@ -1,13 +1,28 @@
 import numpy as np
-from random import randint
 import pandas as pd
-from numpy.random import normal, binomial
 import statsmodels.stats.api as sms
-import math
+import math, os, sys, yaml
+import matplotlib.pyplot as plt
+from random import randint
+from numpy.random import normal, binomial
 from collections import Counter
 from scipy.stats import mannwhitneyu
-import matplotlib.pyplot as plt
-import os
+
+
+try:
+    project_dir = os.path.dirname(__file__)
+    config_file = os.path.join(project_dir, 'config/config.yaml')
+
+    with open (config_file, 'r') as file:
+        config = yaml.safe_load(file)
+except yaml.YAMLError as exc:
+    print(exc)
+    sys.exit(1)
+except Exception as e:
+    print('Error reading the config file')
+    sys.exit(1)
+
+
 
 
 def generate_distribution(dist: str, params: tuple, n_samples: int) -> np.array:
@@ -27,7 +42,7 @@ def read_file(path: str) -> pd.DataFrame:
     return df
 
 
-class ABtest:
+class ABtest():
     """Perform AB-test"""
     def __init__(self):
         self.datasets = { 'A': {}, 'B': {}, 'type': 'continuous'}
@@ -164,9 +179,10 @@ class ABtest:
 if __name__ == '__main__':
     # Example scenario to use
     m = ABtest()
-    m.generate_datasets(n_samples=1000, dist1='binomial', dist1_params=(1, .5), dist2='binomial', dist2_params=(1, .5))
+    m.generate_datasets(n_samples=config['n_samples'], dist1=config['dist1'], dist1_params=config['dist1_params'], \
+                        dist2=config['dist2'], dist2_params=config['dist2_params'])
     # m.load_dataset('./data/test_dataset.csv', type='continuous', output='response', split_by='group', confound=None)
     # m.plot_distributions(save_path='./output/AB_dists.png')
-    print(m.power_analysis(n_samples=200, effect_size=0.08, power=None))
+    print(m.power_analysis(n_samples=config['power']['n_samples'], effect_size=config['power']['effect_size'], power=None))
     m.run_simulation()
 
