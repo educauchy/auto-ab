@@ -3,16 +3,14 @@ import pandas as pd
 import statsmodels.stats.api as sms
 import math, os, sys, yaml
 import matplotlib.pyplot as plt
-from random import randint
-from numpy.random import normal, binomial
 from collections import Counter
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, ttest_1samp, ttest_ind, ttest_ind_from_stats, ttest_rel
+from typing import Dict, List, Tuple
 
 
 try:
     project_dir = os.path.dirname(__file__)
-    config_file = os.path.join(project_dir, 'config/config.yaml')
-
+    config_file = os.path.join(project_dir, 'config.yaml')
     with open (config_file, 'r') as file:
         config = yaml.safe_load(file)
 except yaml.YAMLError as exc:
@@ -25,12 +23,12 @@ except Exception as e:
 
 
 
-def generate_distribution(dist: str, params: tuple, n_samples: int) -> np.array:
+def generate_distribution(dist_type: str, params: tuple, n_samples: int) -> np.array:
     """Return distribution with given parameters and number of samples."""
-    if dist == 'normal':
-        return normal(*params, n_samples)
-    elif dist == 'binomial':
-        return binomial(*params, n_samples)
+    if dist_type == 'normal':
+        return np.random.normal(*params, n_samples)
+    elif dist_type == 'binomial':
+        return np.random.binomial(*params, n_samples)
 
 def read_file(path: str) -> pd.DataFrame:
     """Read file and return pandas dataframe"""
@@ -42,9 +40,13 @@ def read_file(path: str) -> pd.DataFrame:
     return df
 
 
-class ABtest():
+
+class ABTest:
     """Perform AB-test"""
-    def __init__(self):
+    def __init__(self, alpha: float = 0.05, alternative: str = 'one-sided', n_boot_samples: int = 10000) -> None:
+        self.alpha = alpha
+        self.alternative = alternative
+        self.n_boot_samples = n_boot_samples
         self.datasets = { 'A': {}, 'B': {}, 'type': 'continuous'}
         self.power = {}
         self.campaigns = {}
@@ -60,6 +62,25 @@ class ABtest():
             plt.savefig(save_path)
         else:
             plt.show()
+
+    def ttest_ind(self, X: np.array, Y: np.array, equal_var: bool = False, use_bootstrap: bool = False) -> tuple:
+        T: List[float] = []
+        for _ in range(self.n_boot_samples):
+            x_boot = np.random.choice(X, size=X.shape[0], replace=True)
+            y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
+            test_res = ttest_ind(x_boot, y_boot, equal_var=equal_var, alternative=self.alternative)
+            if test_res[1] >= self.alpha:
+                T.append(test_res[0])
+        boot_alpha = np.sum(T) / self.n_boot_samples
+        return boot_alpha
+
+    def load_datasets(self, X: pd.DataFrame, Y: pd.DataFrame) -> None:
+        self.datasets['A'] = X
+        self.datasets['B'] = Y
+
+    def use_datasets(self, X: np.array, Y: np.array) -> None:
+        self.datasets['A'] = X
+        self.datasets['B'] = Y
 
     def load_dataset(self, path: str, type: str='discrete', output: str=None,
                      split_by: str=None, confound: str=None) -> None:
@@ -84,7 +105,8 @@ class ABtest():
         a_response = [*generate_distribution(dist1, dist1_params, n_samples_each)]
         b_response = [*generate_distribution(dist2, dist2_params, n_samples_each)]
 
-        campaign_id = randint(1, 50)
+        # campaign_id = randint(1, 50)
+        campaign_id = np.random.randint(1, 50, 1)[0]
         dataset = pd.DataFrame(columns=['user_id', 'campaign_id', 'group', 'response'])
         dataset['user_id'] = range(n_samples)
         dataset['group'] = ['control'] * n_samples_each + ['treatment'] * n_samples_each
@@ -102,7 +124,7 @@ class ABtest():
             dataset.to_csv(save_path, index=False)
 
     def power_analysis(self, power: float=0.8, alpha: float=0.05, ratio: float=1.0,
-                       effect_size: float=None, n_samples: float=None) -> dict:
+                       effect_size: float=None, n_samples: float=None) -> Dict[str, float]:
         """Perform power analysis and return computed parameter which was initialised as None."""
         self.alpha = alpha
         unknown_arg = 'n_samples'
@@ -178,11 +200,18 @@ class ABtest():
 
 if __name__ == '__main__':
     # Example scenario to use
-    m = ABtest()
-    m.generate_datasets(n_samples=config['n_samples'], dist1=config['dist1'], dist1_params=config['dist1_params'], \
-                        dist2=config['dist2'], dist2_params=config['dist2_params'])
+    m = ABTest(alpha=0.5, alternative='two-sided', n_boot_samples=10000)
+    x = np.random.normal(0, 1, 10000)
+    y = np.random.normal(0, 1, 20000)
+    m.use_datasets(x, y)
+    res = m.ttest_ind(x, y, equal_var=False, use_bootstrap=True)
+    print(res)
+
+
+    # m.generate_datasets(n_samples=config['n_samples'], dist1=config['dist1'], dist1_params=config['dist1_params'], \
+    #                     dist2=config['dist2'], dist2_params=config['dist2_params'])
     # m.load_dataset('./data/test_dataset.csv', type='continuous', output='response', split_by='group', confound=None)
     # m.plot_distributions(save_path='./output/AB_dists.png')
-    print(m.power_analysis(n_samples=config['power']['n_samples'], effect_size=config['power']['effect_size'], power=None))
-    m.run_simulation()
+    # print(m.power_analysis(n_samples=config['power']['n_samples'], effect_size=config['power']['effect_size'], power=None))
+    # m.run_simulation()
 
