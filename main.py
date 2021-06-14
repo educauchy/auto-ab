@@ -23,21 +23,7 @@ except Exception as e:
 
 
 
-def generate_distribution(dist_type: str, params: tuple, n_samples: int) -> np.array:
-    """Return distribution with given parameters and number of samples."""
-    if dist_type == 'normal':
-        return np.random.normal(*params, n_samples)
-    elif dist_type == 'binomial':
-        return np.random.binomial(*params, n_samples)
 
-def read_file(path: str) -> pd.DataFrame:
-    """Read file and return pandas dataframe"""
-    _, file_ext = os.path.splitext(path)
-    if file_ext == '.csv':
-        df = pd.read_csv(path, encoding='utf8')
-    elif file_ext == '.xls' or file_ext == '.xlsx':
-        df = pd.read_excel(path, encoding='utf8')
-    return df
 
 
 
@@ -50,6 +36,22 @@ class ABTest:
         self.datasets = { 'A': {}, 'B': {}, 'type': 'continuous'}
         self.power = {}
         self.campaigns = {}
+
+    def _read_file(path: str) -> pd.DataFrame:
+        """Read file and return pandas dataframe"""
+        _, file_ext = os.path.splitext(path)
+        if file_ext == '.csv':
+            df = pd.read_csv(path, encoding='utf8')
+        elif file_ext == '.xls' or file_ext == '.xlsx':
+            df = pd.read_excel(path, encoding='utf8')
+        return df
+
+    def _generate_distribution(cls, dist_type: str, params: tuple, n_samples: int) -> np.array:
+        """Return distribution by type, with given parameters and number of samples."""
+        if dist_type == 'normal':
+            return np.random.normal(*params, n_samples)
+        elif dist_type == 'binomial':
+            return np.random.binomial(*params, n_samples)
 
     def plot_distributions(self, save_path: str=None) -> None:
         """Generate distributions and save plot on given path."""
@@ -64,6 +66,7 @@ class ABTest:
             plt.show()
 
     def ttest_ind(self, X: np.array, Y: np.array, equal_var: bool = False, use_bootstrap: bool = False) -> tuple:
+        """Perform T-test for independent samples with unequal number of observations and variance"""
         T: List[float] = []
         for _ in range(self.n_boot_samples):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
@@ -74,11 +77,8 @@ class ABTest:
         boot_alpha = np.sum(T) / self.n_boot_samples
         return boot_alpha
 
-    def load_datasets(self, X: pd.DataFrame, Y: pd.DataFrame) -> None:
-        self.datasets['A'] = X
-        self.datasets['B'] = Y
-
     def use_datasets(self, X: np.array, Y: np.array) -> None:
+        """Load X and Y datasets"""
         self.datasets['A'] = X
         self.datasets['B'] = Y
 
@@ -86,7 +86,7 @@ class ABTest:
                      split_by: str=None, confound: str=None) -> None:
         """Load dataset for AB-testing"""
         self.datasets['type'] = type
-        df = read_file(path)
+        df = self._read_file(path)
 
         if 'timestamp' not in df.columns:
             df['timestamp'] = range(df.shape[0])
@@ -102,8 +102,8 @@ class ABTest:
                           to_save: bool=False, save_path: str='./data/test_dataset.csv') -> None:
         """Generate two datasets with given parameters for analysis."""
         n_samples_each = n_samples // 2
-        a_response = [*generate_distribution(dist1, dist1_params, n_samples_each)]
-        b_response = [*generate_distribution(dist2, dist2_params, n_samples_each)]
+        a_response = [*self._generate_distribution(dist1, dist1_params, n_samples_each)]
+        b_response = [*self._generate_distribution(dist2, dist2_params, n_samples_each)]
 
         # campaign_id = randint(1, 50)
         campaign_id = np.random.randint(1, 50, 1)[0]
@@ -169,9 +169,6 @@ class ABTest:
         B['group'] = 'treatment'
         dataset = pd.concat([A, B])
         dataset.sort_values(by='timestamp', inplace=True)
-
-        # print(dataset.head())
-        print(pd.crosstab(dataset['group'], dataset['data']))
 
         for row_index in range(1, dataset.shape[0]):
             series = {'iteration': row_index, 'control': 0, 'treatment': 0, 'statistic': '',
