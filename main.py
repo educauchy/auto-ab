@@ -4,7 +4,7 @@ import statsmodels.stats.api as sms
 import math, os, sys, yaml
 import matplotlib.pyplot as plt
 from collections import Counter
-from scipy.stats import mannwhitneyu, ttest_1samp, ttest_ind, ttest_ind_from_stats, ttest_rel
+from scipy.stats import mannwhitneyu, ttest_1samp, ttest_ind, ttest_ind_from_stats, ttest_rel, t
 from typing import Dict, List, Tuple
 
 
@@ -67,14 +67,15 @@ class ABTest:
 
     def ttest_ind(self, X: np.array, Y: np.array, equal_var: bool = False, use_bootstrap: bool = False) -> tuple:
         """Perform T-test for independent samples with unequal number of observations and variance"""
-        T: List[float] = []
+        T: int = 0
         for _ in range(self.n_boot_samples):
-            x_boot = np.random.choice(X, size=X.shape[0], replace=True)
-            y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
+            x_boot = np.random.choice(self.datasets['X'], size=self.datasets['X'].shape[0], replace=True)
+            y_boot = np.random.choice(self.datasets['Y'], size=self.datasets['Y'].shape[0], replace=True)
+            T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot)/np.size(x_boot) + np.var(y_boot)/np.size(y_boot))
             test_res = ttest_ind(x_boot, y_boot, equal_var=equal_var, alternative=self.alternative)
-            if test_res[1] >= self.alpha:
-                T.append(test_res[0])
-        boot_alpha = np.sum(T) / self.n_boot_samples
+            if T_boot >= test_res[1]:
+                T += 1
+        boot_alpha = T / self.n_boot_samples
         return boot_alpha
 
     def use_datasets(self, X: np.array, Y: np.array) -> None:
@@ -194,14 +195,15 @@ class ABTest:
 
         output.to_excel(output_path, index=False)
 
-
 if __name__ == '__main__':
     # Example scenario to use
     m = ABTest(alpha=0.5, alternative='two-sided', n_boot_samples=10000)
     x = np.random.normal(0, 1, 10000)
     y = np.random.normal(0, 1, 20000)
     m.use_datasets(x, y)
-    res = m.ttest_ind(x, y, equal_var=False, use_bootstrap=True)
+    # m.train_test_split(x, share_of_test_group=0.25)
+    # m.increase_B()
+    res = m.ttest_ind(equal_var=False, use_bootstrap=True)
     print(res)
 
 
