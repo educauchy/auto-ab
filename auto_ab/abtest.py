@@ -5,7 +5,8 @@ import math, os
 import matplotlib.pyplot as plt
 from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, kstwo
-from typing import Dict, List, Tuple, Any, Union
+from typing import Dict, List, Tuple, Any, Union, Optional
+from collections.abc import Callable
 
 
 class ABTest:
@@ -39,7 +40,6 @@ class ABTest:
         else:
             raise Exception("Alternative must be either 'one-sided' or 'two-sided'. Your input: '{}'.".format(value))
 
-
     def __str__(self):
         return f"ABTest(alpha={self.alpha}, alternative='{self.alternative}')"
 
@@ -47,11 +47,14 @@ class ABTest:
         """Add constant increment to a list"""
         return X + inc_value
 
-    def _split_data(self, X: np.array, split_rate: float) -> Tuple[np.array, np.array]:
+    def _split_data(self, X: np.array, split_rate: float, use_custom: bool = False) -> Tuple[np.array, np.array]:
         """Split data into two group by split rate"""
-        np.random.shuffle(X)
-        treatment_size = int(np.round(X.size * split_rate))
-        control, treatment = X[treatment_size:], X[:treatment_size]
+        if use_custom:
+            control, treatments = self.splitter(X, split_rate)
+        else:
+            np.random.shuffle(X)
+            treatment_size = int(np.round(X.size * split_rate))
+            control, treatment = X[treatment_size:], X[:treatment_size]
         return control, treatment
 
     def _read_file(path: str) -> pd.DataFrame:
@@ -78,7 +81,9 @@ class ABTest:
         plt.legend(loc='upper right')
         plt.savefig(save_path)
 
-    def test_hypothesis(self, X: np.array, Y: np.array, test_type: str, use_bootstrap: bool = False) -> float:
+    def test_hypothesis(self, X: np.array, Y: np.array, test_type: str,
+                        metric: Optional[Callable[[np.array, np.array], float]] = None,
+                        use_bootstrap: bool = False, use_correction: bool = True) -> float:
         """
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
@@ -98,13 +103,17 @@ class ABTest:
             elif test_type == 'good_fit':
                 T_boot = 0
                 test_res = 0
+            elif test_type == 'custom':
+                pass
 
-            if T_boot >= test_res[1]:
+            if (use_correction and (T_boot >= (test_res[1] / self.n_boot_samples))) or \
+                (not use_correction and (T_boot >= test_res[1])):
                 T += 1
         pvalue = T / self.n_boot_samples
         return pvalue
 
-    def mde(self, n_iter: int = 20000, n_boot_samples: int = 10000, test_type: str = 'means', to_csv: bool = False, csv_name: str = None) -> Dict[Any, Any]:
+    def mde(self, n_iter: int = 20000, n_boot_samples: int = 10000, test_type: str = 'means',
+            use_correction: bool = True, to_csv: bool = False, csv_name: str = None) -> Dict[Any, Any]:
         if n_boot_samples < 1:
             raise Exception('Number of bootstrap samples must be 1 or more. Your input: {}.'.format(n_boot_samples))
         self.n_boot_samples = n_boot_samples
@@ -117,7 +126,8 @@ class ABTest:
                 for _ in range(n_iter):
                     control, treatment = self._split_data(self.datasets['X'], split_rate)
                     treatment = self._add_increment(treatment, inc)
-                    pvalue = self.test_hypothesis(control, treatment, test_type = test_type, use_bootstrap=True)
+                    pvalue = self.test_hypothesis(control, treatment, test_type = test_type,
+                                                  use_bootstrap=True, use_correction=use_correction)
                     if pvalue <= self.alpha:
                         imitation_log[split_rate][inc] += 1
                 imitation_log[split_rate][inc] /= n_iter
@@ -129,7 +139,7 @@ class ABTest:
                 csv_pd = csv_pd.append(row)
 
         if to_csv:
-            csv_pd.to_csv(f'./data/{csv_name}.csv', index=False)
+            csv_pd.to_csv(f'./{csv_name}.csv', index=False)
         return dict(imitation_log)
 
     def use_datasets(self, X: np.array, Y: np.array) -> None:
@@ -266,12 +276,17 @@ class ABTest:
             output = output.append(pd.Series(series), ignore_index=True)
         output.to_excel(output_path, index=False)
 
-    def set_increment(self, inc_var: List[float] = None, extra_params: Dict[str, float] = None):
+    def set_increment(self, inc_var: List[float] = None, extra_params: Dict[str, float] = None) -> None:
         self.increment_list = inc_var
+        self.increment_extra = extra_params
 
-    def set_split_rate(self, split_rates: List[float] = None):
+    def set_split_rate(self, split_rates: List[float] = None) -> None:
         self.split_rates = split_rates
 
-    def set_splitter(self):
-        pass
+    def set_splitter(self, splitter_function) -> None:
+        """
+        Add custom splitter function
+        :param splitter_function: Takes two arguments: X - array, split_rate; returns a tuple: (control, treatment)
+        """
+        self.splitter = splitter_function
 
