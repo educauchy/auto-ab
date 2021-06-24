@@ -4,9 +4,9 @@ import statsmodels.stats.api as sms
 import math, os
 import matplotlib.pyplot as plt
 from collections import Counter, defaultdict
-from scipy.stats import mannwhitneyu, ttest_ind, kstwo
-from typing import Dict, List, Tuple, Any, Union, Optional
-from collections.abc import Callable
+from scipy.stats import mannwhitneyu, ttest_ind, t
+from typing import Dict, List, Tuple, Any, Union, Optional, Callable
+from tqdm.auto import tqdm
 
 
 class ABTest:
@@ -81,9 +81,44 @@ class ABTest:
         plt.legend(loc='upper right')
         plt.savefig(save_path)
 
-    def test_hypothesis(self, X: np.array, Y: np.array, test_type: str,
-                        metric: Optional[Callable[[np.array, np.array], float]] = None,
-                        use_bootstrap: bool = False, use_correction: bool = True) -> float:
+    def plot_distribution(self, X: Union[np.array], ci: np.array, save_path: str) -> None:
+        """Generate distributions and save plot on given path."""
+        bins = np.linspace(-10, 10, 100)
+        plt.hist(X, bins, alpha=0.9, label='Custom metric distribution')
+        plt.vlines(ci, ymin=0, ymax=20, linestyle='--')
+        plt.legend(loc='upper right')
+        plt.savefig(save_path)
+        plt.close()
+
+    def test_hypothesis_confint(self, X: np.array, Y: np.array,
+                        metric: Optional[Callable[[Any], float]] = None) -> float:
+        """
+        Perform T-test for independent samples with unequal number of observations and variance
+        :param X: Null hypothesis distribution
+        :param Y: Alternative hypothesis distribution
+        :param test_type: Test that will be performed on data. Possible values: 'means', 'good_fit'
+        :param use_bootstrap: Flag whether to use bootstrap samplings or not
+        :returns: Ratio of rejected H0 hypotheses to number of all tests
+        """
+        metric_diffs: List[float] = []
+        for _ in tqdm(range(self.n_boot_samples)):
+            x_boot = np.random.choice(X, size=X.size, replace=True)
+            y_boot = np.random.choice(Y, size=Y.size, replace=True)
+            metric_diffs.append( metric(x_boot) - metric(y_boot) )
+        pd_metric_diffs = pd.DataFrame(metric_diffs)
+
+        left_quant = self.alpha / 2
+        right_quant = 1 - self.alpha / 2
+        ci = pd_metric_diffs.quantile([left_quant, right_quant])
+
+        test_result: int = 0 # 0 - cannot reject H0, 1 - reject H0
+        if float(ci.iloc[0]) > 0 or float(ci.iloc[1]) < 0: # left border of ci > 0 or right border of ci < 0
+                test_result = 1
+
+        # self.plot_distribution(metric_diffs, ci, f'./media/custom_metrics/custom_dist_{np.random.randint(0, 10000, 1)[0]}.png')
+        return test_result
+
+    def test_hypothesis(self, X: np.array, Y: np.array, use_bootstrap: bool = False, use_correction: bool = True) -> float:
         """
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
@@ -97,22 +132,18 @@ class ABTest:
             x_boot = np.random.choice(X, size=X.size, replace=True)
             y_boot = np.random.choice(Y, size=Y.size, replace=True)
 
-            if test_type == 'means':
-                T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.size + np.var(y_boot) / y_boot.size)
-                test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.alternative)
-            elif test_type == 'good_fit':
-                T_boot = 0
-                test_res = 0
-            elif test_type == 'custom':
-                pass
+            T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.size + np.var(y_boot) / y_boot.size)
+            test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.alternative)
 
             if (use_correction and (T_boot >= (test_res[1] / self.n_boot_samples))) or \
-                (not use_correction and (T_boot >= test_res[1])):
+                    (not use_correction and (T_boot >= test_res[1])):
                 T += 1
+
         pvalue = T / self.n_boot_samples
         return pvalue
 
     def mde(self, n_iter: int = 20000, n_boot_samples: int = 10000, test_type: str = 'means',
+            metric: Optional[Callable[[Any], float]] = None,
             use_correction: bool = True, to_csv: bool = False, csv_name: str = None) -> Dict[Any, Any]:
         if n_boot_samples < 1:
             raise Exception('Number of bootstrap samples must be 1 or more. Your input: {}.'.format(n_boot_samples))
@@ -126,10 +157,15 @@ class ABTest:
                 for _ in range(n_iter):
                     control, treatment = self._split_data(self.datasets['X'], split_rate)
                     treatment = self._add_increment(treatment, inc)
-                    pvalue = self.test_hypothesis(control, treatment, test_type = test_type,
-                                                  use_bootstrap=True, use_correction=use_correction)
-                    if pvalue <= self.alpha:
-                        imitation_log[split_rate][inc] += 1
+
+                    if test_type == 'means':
+                        pvalue: float = self.test_hypothesis(control, treatment, use_bootstrap=True, use_correction=use_correction)
+                        if pvalue <= self.alpha:
+                            imitation_log[split_rate][inc] += 1
+                    elif test_type == 'custom':
+                        test_result: int = self.test_hypothesis_confint(control, treatment, metric=metric)
+                        imitation_log[split_rate][inc] += test_result
+
                 imitation_log[split_rate][inc] /= n_iter
 
                 row = pd.DataFrame({
@@ -139,7 +175,7 @@ class ABTest:
                 csv_pd = csv_pd.append(row)
 
         if to_csv:
-            csv_pd.to_csv(f'./{csv_name}.csv', index=False)
+            csv_pd.to_csv(csv_name, index=False)
         return dict(imitation_log)
 
     def use_datasets(self, X: np.array, Y: np.array) -> None:
@@ -283,10 +319,10 @@ class ABTest:
     def set_split_rate(self, split_rates: List[float] = None) -> None:
         self.split_rates = split_rates
 
-    def set_splitter(self, splitter_function) -> None:
+    def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]) -> None:
         """
         Add custom splitter function
-        :param splitter_function: Takes two arguments: X - array, split_rate; returns a tuple: (control, treatment)
+        :param splitter: Takes two arguments: X - array, split_rate; returns a tuple: (control, treatment)
         """
-        self.splitter = splitter_function
+        self.splitter = splitter
 
