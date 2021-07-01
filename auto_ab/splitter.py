@@ -9,16 +9,21 @@ from typing import Dict, List, Tuple, Any, Union, Optional, Callable
 
 
 class Splitter:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, split_rate: float = 0.5, confounding: List[str] = None,
+                 stratify: bool = False, stratify_by: List[str] = None) -> None:
+        self.split_rate = split_rate
+        self.confounding = confounding
+        self.stratify = stratify
+        self.stratify_by = stratify_by
 
     def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]):
         pass
 
-    def _split(self, X: pd.DataFrame, confounding: List[str] = None):
+    def _split(self, X: pd.DataFrame, split_rate: float = 0.5, confounding: List[str] = None):
         """
         Splitting of the dataset
         :param X: Dataframe for splitting
+        :param split_rate: Split rate between control and treatment groups
         :param confounding: List of confounding variables
         :return: Initial dataframe with one more column: group
         """
@@ -27,7 +32,7 @@ class Splitter:
         X_unique_conf = X.groupby(by=confounding).group.count().reset_index()
         X_unique_conf.rename(columns={'group': 'cnt_obs'}, inplace=True)
         for _, row in X_unique_conf.iterrows():
-            A_len = int(round(row['cnt_obs'] / 2))
+            A_len = int(round(row['cnt_obs'] * split_rate))
             B_len = row['cnt_obs'] - A_len
             group_flag = ['A' for _ in range(A_len)] + ['B' for _ in range(B_len)]
             logicals = []
@@ -52,17 +57,17 @@ class Splitter:
             X.loc[np.logical_and.reduce(logicals), 'strata'] = i
         return X
 
-    def fit(self, X: pd.DataFrame, split_rate: float = 0.5, confounding: List[str] = None, stratify: bool = False, stratify_by: List[str] = None) -> pd.DataFrame:
-        if stratify:
-            X = self._stratify(X, by=stratify_by)
+    def fit(self, X: pd.DataFrame) -> pd.DataFrame:
+        if self.stratify:
+            X = self._stratify(X, by=self.stratify_by)
             Xs = []
             for strata in X.strata.unique():
                 X_strata = X.loc[X.strata == strata]
-                res = self._split(X_strata, confounding)
+                res = self._split(X_strata, self.split_rate, self.confounding)
                 Xs.append(res)
             return Xs
         else:
-            X = self._split(X, confounding)
+            X = self._split(X, self.split_rate, self.confounding)
             return X
 
 
@@ -74,6 +79,7 @@ if __name__ == '__main__':
         'country': [np.random.choice(['UK', 'US'], 1)[0] for _ in range(20)],
     })
     conf = ['sex', 'married']
-    X_out = Splitter().fit(X, confounding=conf, stratify=True, stratify_by=['country'])
+    stratify_by = ['country']
+    X_out = Splitter(split_rate=0.4, confounding=conf, stratify=True, stratify_by=stratify_by).fit(X)
     for df in X_out:
         print(df.sort_values(by=conf))

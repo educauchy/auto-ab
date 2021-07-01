@@ -1,6 +1,8 @@
 import numpy as np
+import pandas as pd
 import os, sys, yaml, json
-from auto_ab import ABTest
+from auto_ab import ABTest, Splitter
+from typing import Dict, List, Tuple, Any, Union
 
 
 try:
@@ -16,24 +18,31 @@ except Exception as e:
     sys.exit(1)
 
 
-# Example scenario to use
-# x = np.random.normal(0, 1, 10000)
-# y = np.random.normal(0, 1, 20000)
-# m.use_datasets(x, y)
 
+
+def metric(X: np.array) -> float:
+    return np.quantile(X, 0.1)
+
+# Data
+mult = 5000
+X = pd.DataFrame({
+    'sex': (['f' for _ in range(14)] + ['m' for _ in range(6)]) * mult,
+    'married': (['yes' for _ in range(5)] + ['no' for _ in range(9)] + ['yes' for _ in range(4)] + ['no', 'no']) * mult,
+    'country': [np.random.choice(['UK', 'US'], 1)[0] for _ in range(20)] * mult,
+    'height': [np.random.randint(160, 190, 1)[0] for _ in range(20)] * mult,
+})
+conf = ['sex', 'married']
+stratify_by = ['country']
+print(X)
+
+# Splitter
+splitter = Splitter(split_rate=0.5, confounding=conf, stratify=False, stratify_by=stratify_by)
+
+# AB-test
 m = ABTest(alpha=0.05, alternative='two-sided')
-X = np.random.randint(0, 300, 1000)
-m.use_dataset(X)
-m.set_increment(inc_var=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5])
-m.set_split_rate(split_rates=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
-m.set_splitter()
-res = m.mde(n_iter=500, n_boot_samples=5, to_csv=True)
+m.use_dataset(X, target='height')
+m.set_increment(inc_var=[0.1, 0.2, 0.3, 0.4, 0.5, 0.8, 1, 2], extra_params={})
+m.set_split_rate(split_rates=[0.1, 0.2, 0.3, 0.4, 0.5])
+m.set_splitter(splitter)
+res = m.mde(n_iter=10, n_buckets=200, metric=metric, test_type='buckets', to_csv=True, csv_name='./data/buckets_10quantile.csv')
 print(json.dumps(res, indent=4))
-
-# m.generate_datasets(n_samples=config['n_samples'], dist1=config['dist1'], dist1_params=config['dist1_params'], \
-#                     dist2=config['dist2'], dist2_params=config['dist2_params'])
-# m.load_dataset('./data/test_dataset.csv', type='continuous', output='response', split_by='group', confound=None)
-# m.plot_distributions(save_path='./output/AB_dists.png')
-# print(m.power_analysis(n_samples=config['power']['n_samples'], effect_size=config['power']['effect_size'], power=None))
-# m.run_simulation()
-

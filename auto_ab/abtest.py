@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, t
 from typing import Dict, List, Tuple, Any, Union, Optional, Callable
 from tqdm.auto import tqdm
+from .splitter import Splitter
 
 
 class ABTest:
@@ -35,26 +36,26 @@ class ABTest:
 
     @alternative.setter
     def alternative(self, value):
-        if value in ['one-sided', 'two-sided']:
+        if value in ['less', 'greater', 'two-sided']:
             self.__alternative = value
         else:
-            raise Exception("Alternative must be either 'one-sided' or 'two-sided'. Your input: '{}'.".format(value))
+            raise Exception("Alternative must be either 'less', 'greater', or 'two-sided'. Your input: '{}'.".format(value))
 
     def __str__(self):
-        return f"ABTest(alpha={self.alpha}, alternative='{self.alternative}')"
+        return f"ABTest(alpha={self.__alpha}, alternative='{self.__alternative}')"
 
     def _add_increment(self, X: np.array, inc_value: Union[float, int]) -> np.array:
         """Add constant increment to a list"""
         return X + inc_value
 
-    def _split_data(self, X: np.array, split_rate: float, use_custom: bool = False) -> Tuple[np.array, np.array]:
-        """Split data into two group by split rate"""
-        if use_custom:
-            control, treatments = self.splitter(X, split_rate)
-        else:
-            np.random.shuffle(X)
-            treatment_size = int(np.round(X.size * split_rate))
-            control, treatment = X[treatment_size:], X[:treatment_size]
+    def _split_data(self, X: pd.DataFrame) -> Tuple[np.array, np.array]:
+        """Split data into two groups"""
+        X_with_groups = self.splitter.fit(X)
+        control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(),\
+                             X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
+        #     np.random.shuffle(X)
+        #     treatment_size = int(np.round(X.size * split_rate))
+        #     control, treatment = X[treatment_size:], X[:treatment_size]
         return control, treatment
 
     def _read_file(path: str) -> pd.DataFrame:
@@ -90,6 +91,20 @@ class ABTest:
         plt.savefig(save_path)
         plt.close()
 
+    def test_hypothesis_buckets(self, X: np.array, Y: np.array,
+                                metric: Optional[Callable[[Any], float]] = None,
+                                n_buckets: int = 1000):
+        np.random.shuffle(X)
+        np.random.shuffle(Y)
+        X_new = np.array([ metric(x) for x in np.array_split(X, n_buckets) ])
+        Y_new = np.array([ metric(y) for y in np.array_split(Y, n_buckets) ])
+
+        test_result: int = 0
+        _, pvalue = ttest_ind(X_new, Y_new, equal_var=False, alternative=self.__alternative)
+        if pvalue <= self.__alpha:
+            test_result = 1
+        return test_result
+
     def test_hypothesis_confint(self, X: np.array, Y: np.array,
                         metric: Optional[Callable[[Any], float]] = None) -> float:
         """
@@ -107,8 +122,8 @@ class ABTest:
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
-        left_quant = self.alpha / 2
-        right_quant = 1 - self.alpha / 2
+        left_quant = self.__alpha / 2
+        right_quant = 1 - self.__alpha / 2
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
 
         test_result: int = 0 # 0 - cannot reject H0, 1 - reject H0
@@ -133,7 +148,7 @@ class ABTest:
             y_boot = np.random.choice(Y, size=Y.size, replace=True)
 
             T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.size + np.var(y_boot) / y_boot.size)
-            test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.alternative)
+            test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.__alternative)
 
             if (use_correction and (T_boot >= (test_res[1] / self.n_boot_samples))) or \
                     (not use_correction and (T_boot >= test_res[1])):
@@ -142,9 +157,10 @@ class ABTest:
         pvalue = T / self.n_boot_samples
         return pvalue
 
-    def mde(self, n_iter: int = 20000, n_boot_samples: int = 10000, test_type: str = 'means',
+    def mde(self, n_iter: int = 20000, test_type: str = 'means',
+            n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
             metric: Optional[Callable[[Any], float]] = None,
-            use_correction: bool = True, to_csv: bool = False, csv_name: str = None) -> Dict[Any, Any]:
+            use_correction: bool = True, to_csv: bool = False, csv_name: str = None) -> Dict[float, Dict[float, float]]:
         if n_boot_samples < 1:
             raise Exception('Number of bootstrap samples must be 1 or more. Your input: {}.'.format(n_boot_samples))
         self.n_boot_samples = n_boot_samples
@@ -155,15 +171,18 @@ class ABTest:
             for inc in self.increment_list:
                 imitation_log[split_rate][inc] = 0
                 for _ in range(n_iter):
-                    control, treatment = self._split_data(self.datasets['X'], split_rate)
+                    control, treatment = self._split_data(self.datasets['X'])
                     treatment = self._add_increment(treatment, inc)
 
                     if test_type == 'means':
                         pvalue: float = self.test_hypothesis(control, treatment, use_bootstrap=True, use_correction=use_correction)
-                        if pvalue <= self.alpha:
+                        if pvalue <= self.__alpha:
                             imitation_log[split_rate][inc] += 1
                     elif test_type == 'custom':
                         test_result: int = self.test_hypothesis_confint(control, treatment, metric=metric)
+                        imitation_log[split_rate][inc] += test_result
+                    elif test_type == 'buckets':
+                        test_result: int = self.test_hypothesis_buckets(control, treatment, metric=metric, n_buckets=n_buckets)
                         imitation_log[split_rate][inc] += test_result
 
                 imitation_log[split_rate][inc] /= n_iter
@@ -187,12 +206,14 @@ class ABTest:
         self.datasets['A'] = X
         self.datasets['B'] = Y
 
-    def use_dataset(self, X: np.array) -> None:
+    def use_dataset(self, X: np.array, target: str = None) -> None:
         """
         Load X dataset for further splitting it into groups
         :param X: Dataset to be splitted
+        :param target: Target column name
         """
         self.datasets['X'] = X
+        self.target = target
 
     def load_dataset(self, path: str, data_type: str = 'discrete', target_col_name: str = None,
                      split_by_col_name: str = None, confound_col_name: str = None) -> None:
@@ -245,7 +266,7 @@ class ABTest:
     def power_analysis(self, power: float = 0.8, alpha: float = 0.05, ratio: float = 1.0,
                        effect_size: float = None, n_samples: float = None) -> Dict[str, float]:
         """Perform power analysis and return computed parameter which was initialised as None."""
-        self.alpha = alpha
+        self.__alpha = alpha
         unknown_arg = 'n_samples'
         for arg in [*locals().keys()][1:]:
             if eval(arg) is None:
@@ -308,7 +329,7 @@ class ABTest:
 
                 series['statistic'], series['pvalue'] = mannwhitneyu(a, b, alternative='two-sided')
                 series['pvalue'] = round(series['pvalue'], 4)
-                series['inference'] = 'Same' if series['pvalue'] > self.alpha else 'Different'
+                series['inference'] = 'Same' if series['pvalue'] > self.__alpha else 'Different'
             output = output.append(pd.Series(series), ignore_index=True)
         output.to_excel(output_path, index=False)
 
@@ -319,10 +340,10 @@ class ABTest:
     def set_split_rate(self, split_rates: List[float] = None) -> None:
         self.split_rates = split_rates
 
-    def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]) -> None:
+    def set_splitter(self, splitter: Splitter) -> None:
         """
-        Add custom splitter function
-        :param splitter: Takes two arguments: X - array, split_rate; returns a tuple: (control, treatment)
+        Add splitter
+        :param splitter: Splitter instance of class Splitter
         """
         self.splitter = splitter
 
