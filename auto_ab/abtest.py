@@ -4,7 +4,7 @@ import statsmodels.stats.api as sms
 import math, os
 import matplotlib.pyplot as plt
 from collections import Counter, defaultdict
-from scipy.stats import mannwhitneyu, ttest_ind, t
+from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode
 from typing import Dict, List, Tuple, Any, Union, Optional, Callable
 from tqdm.auto import tqdm
 from .splitter import Splitter
@@ -100,13 +100,19 @@ class ABTest:
         Y_new = np.array([ metric(y) for y in np.array_split(Y, n_buckets) ])
 
         test_result: int = 0
-        _, pvalue = ttest_ind(X_new, Y_new, equal_var=False, alternative=self.__alternative)
-        if pvalue <= self.__alpha:
-            test_result = 1
+        if shapiro(X_new)[1] >= 0.05 and shapiro(Y_new)[1] >= 0.05:
+            _, pvalue = ttest_ind(X_new, Y_new, equal_var=False, alternative=self.__alternative)
+            if pvalue <= self.__alpha:
+                test_result = 1
+        else:
+            def metric(X: np.array):
+                modes, _ = mode(X)
+                return sum(modes) / len(modes)
+            test_result = self.test_hypothesis_confint(X_new, Y_new, metric)
         return test_result
 
     def test_hypothesis_confint(self, X: np.array, Y: np.array,
-                        metric: Optional[Callable[[Any], float]] = None) -> float:
+                        metric: Optional[Callable[[Any], float]] = None) -> int:
         """
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
