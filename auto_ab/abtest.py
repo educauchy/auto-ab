@@ -111,14 +111,41 @@ class ABTest:
             test_result = self.test_hypothesis_confint(X_new, Y_new, metric)
         return test_result
 
+    def test_hypothesis_boot_est(self, X: np.array, Y: np.array,
+                        metric: Optional[Callable[[Any], float]] = None) -> float:
+        """
+        Perform bootstrap confidence interval with
+        :param X: Null hypothesis distribution
+        :param Y: Alternative hypothesis distribution
+        :returns: Type I error rate
+        """
+        metric_diffs: List[float] = []
+        for _ in tqdm(range(self.n_boot_samples)):
+            x_boot = np.random.choice(X, size=X.size, replace=True)
+            y_boot = np.random.choice(Y, size=Y.size, replace=True)
+            metric_diffs.append( metric(x_boot) - metric(y_boot) )
+        pd_metric_diffs = pd.DataFrame(metric_diffs)
+
+        left_quant = self.__alpha / 2
+        right_quant = 1 - self.__alpha / 2
+        ci = pd_metric_diffs.quantile([left_quant, right_quant])
+        ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
+
+        criticals = [0, 0]
+        for boot in pd_metric_diffs:
+            if boot < 0 and boot < ci_left:
+                criticals[0] += 1
+            elif boot > 0 and boot > ci_right:
+                criticals[1] += 1
+        false_positive = min(criticals) / pd_metric_diffs.shape[0]
+        return false_positive
+
     def test_hypothesis_confint(self, X: np.array, Y: np.array,
                         metric: Optional[Callable[[Any], float]] = None) -> int:
         """
-        Perform T-test for independent samples with unequal number of observations and variance
+        Perform bootstrap confidence interval
         :param X: Null hypothesis distribution
         :param Y: Alternative hypothesis distribution
-        :param test_type: Test that will be performed on data. Possible values: 'means', 'good_fit'
-        :param use_bootstrap: Flag whether to use bootstrap samplings or not
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         metric_diffs: List[float] = []
@@ -131,15 +158,16 @@ class ABTest:
         left_quant = self.__alpha / 2
         right_quant = 1 - self.__alpha / 2
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
+        ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
 
         test_result: int = 0 # 0 - cannot reject H0, 1 - reject H0
-        if float(ci.iloc[0]) > 0 or float(ci.iloc[1]) < 0: # left border of ci > 0 or right border of ci < 0
+        if ci_left > 0 or ci_right < 0: # left border of ci > 0 or right border of ci < 0
                 test_result = 1
 
         # self.plot_distribution(metric_diffs, ci, f'./media/custom_metrics/custom_dist_{np.random.randint(0, 10000, 1)[0]}.png')
         return test_result
 
-    def test_hypothesis(self, X: np.array, Y: np.array, use_bootstrap: bool = False, use_correction: bool = True) -> float:
+    def test_hypothesis(self, X: np.array, Y: np.array, use_correction: bool = True) -> float:
         """
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
@@ -181,10 +209,14 @@ class ABTest:
                     treatment = self._add_increment(treatment, inc)
 
                     if test_type == 'means':
-                        pvalue: float = self.test_hypothesis(control, treatment, use_bootstrap=True, use_correction=use_correction)
+                        pvalue: float = self.test_hypothesis(control, treatment, use_correction=use_correction)
                         if pvalue <= self.__alpha:
                             imitation_log[split_rate][inc] += 1
-                    elif test_type == 'custom':
+                    elif test_type == 'boot_est':
+                        pvalue: float = self.test_hypothesis_boot_est(control, treatment, metric=metric)
+                        if pvalue <= self.__alpha:
+                            imitation_log[split_rate][inc] += 1
+                    elif test_type == 'confint':
                         test_result: int = self.test_hypothesis_confint(control, treatment, metric=metric)
                         imitation_log[split_rate][inc] += test_result
                     elif test_type == 'buckets':
