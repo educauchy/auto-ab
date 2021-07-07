@@ -5,5 +5,5 @@ seaborn
 scipy
 statsmodels
 sklearn
-pptx
+python-pptx
 flask
