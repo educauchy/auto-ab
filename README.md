@@ -1,24 +1,14 @@
-# auto-ab
+# auto_ab - automate your A/B-testing
 
-The library is developed to assess AB-tests and provide power analysis.
+**auto_ab** is a library developed to automate routine tasks during runs of multiple online controlled experiments, also known as A/B-tests.
 
-For a custom research you need to load dataset with a particular structure shown below.
-Also, you need to provide output variable type in order to use appropriate statistical test.
-
-split_variable | output | confound | timestamp
----------- | ---------- | ---------- | ---------- 
-control | 1 | Europe | 14092
-treatment | 1 | Asia | 23094
-control | 0 | America | 32810
-treatment | 1 | Asia | 17823
-control | 1 | Asia | 9482
-control | 0 | Europe | 22944
-treatment | 0 | America | 31091
-
-where
-* *split_variable* indicates groups for experiment;
-* *output* contains metric of the experiment;
-* *confound* is a confounding variable, by which data must be divided into equal size groups;
-* *timestamp* is a timestamp of the action.
-
-If timestamp is not presented in data, then data is considered in samples order.
+Current features:
+- Classical hypothesis testing
+- Bootstrap hypothesis testing with 3 different approaches
+- Bucketing hypothesis testing
+- Custom metrics
+- Splitter including stratified splitting
+- Test splitter (A/A-test)
+- Dataset generation
+- Custom split rate and increment rate
+- Power analysis
