@@ -57,7 +57,8 @@ class Splitter:
             X.loc[np.logical_and.reduce(logicals), 'strata'] = i
         return X
 
-    def fit(self, X: pd.DataFrame) -> pd.DataFrame:
+    def fit(self, X: pd.DataFrame, split_rate: float = None) -> pd.DataFrame:
+        self.split_rate = split_rate if split_rate is not None else self.split_rate
         if self.stratify:
             X = self._stratify(X, by=self.stratify_by)
             Xs = []
