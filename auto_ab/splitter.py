@@ -1,11 +1,9 @@
 import numpy as np
 import pandas as pd
-import statsmodels.stats.api as sms
-import math, os
-import matplotlib.pyplot as plt
-from collections import Counter, defaultdict
-from scipy.stats import mannwhitneyu, ttest_ind, kstwo
 from typing import Dict, List, Tuple, Any, Union, Optional, Callable
+import hashlib
+from collections import Counter
+import pprint
 
 
 class Splitter:
@@ -71,9 +69,44 @@ class Splitter:
             X = self._split(X, self.split_rate, self.confounding)
             return X
 
+    def create_level(self, X: pd.DataFrame, id_column: str = '', salt: Union[str, int] = '',
+                     n_buckets: int = 100) -> pd.DataFrame:
+        """
+        Create new levels in split all users into buckets
+        :param X: Pandas DataFrame
+        :param id_column: User id column name
+        :param salt: Salt string for the experiment
+        :param n_buckets: Number of buckets for level
+        :return: Pandas DataFrame extended by column 'bucket'
+        """
+        ids: np.array = X[id_column].to_numpy()
+        salt: str = salt if type(salt) is str else str(int)
+        salt: bytes = bytes(salt, 'utf-8')
+        hasher = hashlib.blake2b(salt=salt)
+
+        bucket_ids: np.array = np.array([])
+        for id in ids:
+            hasher.update( bytes(str(id), 'utf-8') )
+            bucket_id = int(hasher.hexdigest(), 16) % n_buckets
+            bucket_ids = np.append(bucket_ids, bucket_id)
+
+        X.loc[:, 'bucket_id'] = bucket_ids
+        X = X.astype({'bucket_id': 'int32'})
+        return X
+
 
 if __name__ == '__main__':
-    # X = pd.read_csv('../data/external/bfp_15w.csv', sep=';', decimal=',')
+    # Test hash function
+    X = pd.DataFrame({
+        'id': range(0, 20000)
+    })
+    sp = Splitter()
+    X_new = sp.create_level(X, 'id', 5, 200)
+    level = X_new['bucket_id']
+    pprint.pprint(Counter(level))
+
+    # Test splitter
+    X = pd.read_csv('../data/external/bfp_15w.csv', sep=';', decimal=',')
     X = pd.DataFrame({
         'sex': ['f' for _ in range(14)] + ['m' for _ in range(6)],
         'married': ['yes' for _ in range(5)] + ['no' for _ in range(9)] + ['yes' for _ in range(4)] + ['no', 'no'],
@@ -84,3 +117,4 @@ if __name__ == '__main__':
     X_out = Splitter(split_rate=0.4, confounding=conf, stratify=True, stratify_by=stratify_by).fit(X)
     for df in X_out:
         print(df.sort_values(by=conf))
+
