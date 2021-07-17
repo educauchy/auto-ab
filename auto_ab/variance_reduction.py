@@ -31,7 +31,8 @@ class VarianceReduction:
               factors_prev: List[str] = None, factors_now: List[str] = None, groups: str = '') -> pd.DataFrame:
         """
         Perform CUPAC with prediction of target column on experiment period.
-        Previous period = before experiment, now_period = after experiment
+        Original paper: https://doordash.engineering/2020/06/08/improving-experimental-power-through-control-using-predictions-as-covariate-cupac/.
+        Previous period = before experiment, now_period = after experiment.
         :param X: Pandas DataFrame for analysis
         :param target_prev: Target on previous period column name
         :param target_now: Target on current period column name
@@ -47,7 +48,8 @@ class VarianceReduction:
     def cuped(self, X: pd.DataFrame, target: str = '', groups: str = '',
               covariate: Optional[str] = None) -> pd.DataFrame:
         """
-        Perform CUPED on target column with known/unknown covariate
+        Perform CUPED on target column with known/unknown covariate.
+        Original paper: https://exp-platform.com/Documents/2013-02-CUPED-ImprovingSensitivityOfControlledExperiments.pdf.
         :param X: Pandas DataFrame for analysis
         :param target: Target column name
         :param groups: Groups A and B column name
