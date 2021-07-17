@@ -7,8 +7,10 @@ Current features:
 - Bootstrap hypothesis testing with 3 different approaches
 - Bucketing hypothesis testing
 - Custom metrics
-- Splitter including stratified splitting
+- Splitter
 - Test splitter (A/A-test)
 - Dataset generation
 - Custom split rate and increment rate
 - Power analysis
+- CUPED
+- CUPAC
