@@ -1,13 +1,51 @@
 import numpy as np
 import pandas as pd
 from typing import Optional
+import statsmodels.api as sm
+from typing import List
 
 
 class VarianceReduction:
     def __init__(self, method: str = None):
         self.method = method
 
-    def cuped(self, X: pd.DataFrame, target: str = '', groups: str = '', covariate: Optional[str] = None) -> pd.DataFrame:
+    def _predict_target(self, X: pd.DataFrame, target_prev: str = '',
+                       factors_prev: List[str] = None, factors_now: List[str] = None) -> pd.Series:
+        """
+        Simple linear regression for covariate prediction
+        :param X: Pandas DataFrame
+        :param target_prev: Target on previous period column name
+        :param factors_prev: Factor columns for modelling
+        :param factors_now: Factor columns for prediction on current period
+        :return: Pandas Series with predicted values
+        """
+        Y = X[target_prev]
+        X_train = X[factors_prev]
+        model = sm.OLS(Y, X_train)
+        results = model.fit()
+        print(results.summary())
+        X_predict = X[factors_now]
+        return results.predict(X_predict)
+
+    def cupac(self, X: pd.DataFrame, target_prev: str = '', target_now: str = '',
+              factors_prev: List[str] = None, factors_now: List[str] = None, groups: str = '') -> pd.DataFrame:
+        """
+        Perform CUPAC with prediction of target column on experiment period.
+        Previous period = before experiment, now_period = after experiment
+        :param X: Pandas DataFrame for analysis
+        :param target_prev: Target on previous period column name
+        :param target_now: Target on current period column name
+        :param factors_prev: Factor columns for modelling
+        :param factors_now: Factor columns for prediction on current period
+        :param groups: Groups A and B column name
+        :return: Pandas DataFrame with additional columns: target_pred and target_now_cuped
+        """
+        X['target_pred'] = self._predict_target(X, target_prev, factors_prev, factors_now)
+        X_new = self.cuped(X, target_now, groups, 'target_pred')
+        return X_new
+
+    def cuped(self, X: pd.DataFrame, target: str = '', groups: str = '',
+              covariate: Optional[str] = None) -> pd.DataFrame:
         """
         Perform CUPED on target column with known/unknown covariate
         :param X: Pandas DataFrame for analysis
@@ -25,7 +63,7 @@ class VarianceReduction:
         var = X[covariate].var()
         self.theta = cov / var
 
-        for group in ['A', 'B']:
+        for group in X[groups].unique():
             X_subdf = X[X[groups] == group]
             group_y_cuped = X_subdf[target] - self.theta * (X_subdf[covariate] - X_subdf[covariate].mean())
             X.loc[X[groups] == group, '{}_cuped'.format(target)] = group_y_cuped
@@ -33,30 +71,37 @@ class VarianceReduction:
 
 if __name__ == '__main__':
     n = 200000
-    t = np.random.randint(160, 195, n)
-    df = pd.DataFrame({
-        'height': t, # height
-        'height_prev': t + np.random.randint(-5, 1, n), # height + random
-        'noise': np.random.normal(0, 1, n), # white noise
+    height = np.random.normal(175, 5, n)
+    weight = np.random.normal(80, 2, n)
+    df = pd.DataFrame({ # now = after experiment, prev = before experiment
+        'height_now': height, # height
+        'height_prev': height + np.random.normal(-3, 2, n),
+        'weight_now': height + np.random.normal(-5, 2, n),
+        'weight_prev': height + np.random.normal(2, 1, n),
+        'noise_now': np.random.normal(5, 3, n),
+        'noise_prev': np.random.normal(4, 3, n),
         'groups': np.random.choice(['A', 'B'], size=n)
     })
-    df_copy = df.copy(deep=True)
 
     vr = VarianceReduction()
-    ans = vr.cuped(df, target='height', groups='groups', covariate='height_prev')
-    print(ans)
+    ans = vr.cupac(df, target_prev='height_prev', target_now='height_now',
+                   factors_prev=['weight_prev'],
+                   factors_now=['weight_now'], groups='groups')
+    # ans = vr.cuped(df, target='height_now', groups='groups', covariate='height_prev')
 
-    print('Means')
-    print(np.mean(ans['height']))
-    print(np.mean(ans.loc[ans.groups == 'A', 'height']))
-    print(np.mean(ans.loc[ans.groups == 'B', 'height']))
-    print(np.mean(ans['height_cuped']))
-    print(np.mean(ans.loc[ans.groups == 'A', 'height_cuped']))
-    print(np.mean(ans.loc[ans.groups == 'B', 'height_cuped']))
-    print('Vars')
-    print(np.var(ans['height']))
-    print(np.var(ans.loc[ans.groups == 'A', 'height']))
-    print(np.var(ans.loc[ans.groups == 'B', 'height']))
-    print(np.var(ans['height_cuped']))
-    print(np.var(ans.loc[ans.groups == 'A', 'height_cuped']))
-    print(np.var(ans.loc[ans.groups == 'B', 'height_cuped']))
+    target_var = 'height_now'
+    target_cuped = target_var + '_cuped'
+    print('\nMeans')
+    print(np.mean(ans[target_var]))
+    print(np.mean(ans.loc[ans.groups == 'A', target_var]))
+    print(np.mean(ans.loc[ans.groups == 'B', target_var]))
+    print(np.mean(ans[target_cuped]))
+    print(np.mean(ans.loc[ans.groups == 'A', target_cuped]))
+    print(np.mean(ans.loc[ans.groups == 'B', target_cuped]))
+    print('\nVars')
+    print(np.var(ans[target_var]))
+    print(np.var(ans.loc[ans.groups == 'A', target_var]))
+    print(np.var(ans.loc[ans.groups == 'B', target_var]))
+    print(np.var(ans[target_cuped]))
+    print(np.var(ans.loc[ans.groups == 'A', target_cuped]))
+    print(np.var(ans.loc[ans.groups == 'B', target_cuped]))
