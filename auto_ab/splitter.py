@@ -17,7 +17,7 @@ class Splitter:
     def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]):
         pass
 
-    def _split(self, X: pd.DataFrame, split_rate: float = 0.5, confounding: List[str] = None):
+    def _split(self, X: pd.DataFrame, split_rate: float = 0.5, confounding: List[str] = None) -> pd.DataFrame:
         """
         Splitting of the dataset
         :param X: Dataframe for splitting

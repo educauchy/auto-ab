@@ -7,3 +7,5 @@ statsmodels
 sklearn
 python-pptx
 flask
+tqdm
+pyyaml

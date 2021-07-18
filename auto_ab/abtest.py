@@ -48,15 +48,13 @@ class ABTest:
         """Add constant increment to a list"""
         return X + inc_value
 
-    def _split_data(self, X: pd.DataFrame) -> Tuple[np.array, np.array]:
+    def _split_data(self, X: pd.DataFrame, split_rate: float) -> pd.DataFrame:
         """Split data into two groups"""
-        X_with_groups = self.splitter.fit(X)
-        control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(),\
-                             X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
-        #     np.random.shuffle(X)
-        #     treatment_size = int(np.round(X.size * split_rate))
-        #     control, treatment = X[treatment_size:], X[:treatment_size]
-        return control, treatment
+        X_with_groups = self.splitter.fit(X, split_rate)
+        # control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(),\
+        #                      X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
+        # return control, treatment
+        return X_with_groups
 
     def _read_file(path: str) -> pd.DataFrame:
         """Read file and return pandas dataframe"""
@@ -74,23 +72,6 @@ class ABTest:
         elif dist_type == 'binomial':
             return np.random.binomial(*params, n_samples)
 
-    def plot_distributions(self, save_path: str) -> None:
-        """Generate distributions and save plot on given path."""
-        bins = np.linspace(-10, 10, 100)
-        plt.hist(self.datasets['A']['data'], bins, alpha=0.5, label='control')
-        plt.hist(self.datasets['B']['data'], bins, alpha=0.5, label='treatment')
-        plt.legend(loc='upper right')
-        plt.savefig(save_path)
-
-    def plot_distribution(self, X: Union[np.array], ci: np.array, save_path: str) -> None:
-        """Generate distributions and save plot on given path."""
-        bins = np.linspace(-10, 10, 100)
-        plt.hist(X, bins, alpha=0.9, label='Custom metric distribution')
-        plt.vlines(ci, ymin=0, ymax=20, linestyle='--')
-        plt.legend(loc='upper right')
-        plt.savefig(save_path)
-        plt.close()
-
     def test_hypothesis_buckets(self, X: np.array, Y: np.array,
                                 metric: Optional[Callable[[Any], float]] = None,
                                 n_buckets: int = 1000):
@@ -100,7 +81,7 @@ class ABTest:
         Y_new = np.array([ metric(y) for y in np.array_split(Y, n_buckets) ])
 
         test_result: int = 0
-        if shapiro(X_new)[1] >= 0.05 and shapiro(Y_new)[1] >= 0.05:
+        if shapiro(X_new)[1] >= self.__alpha and shapiro(Y_new)[1] >= self.__alpha:
             _, pvalue = ttest_ind(X_new, Y_new, equal_var=False, alternative=self.__alternative)
             if pvalue <= self.__alpha:
                 test_result = 1
@@ -108,7 +89,43 @@ class ABTest:
             def metric(X: np.array):
                 modes, _ = mode(X)
                 return sum(modes) / len(modes)
-            test_result = self.test_hypothesis_confint(X_new, Y_new, metric)
+            test_result = self.test_hypothesis_boot_confint(X_new, Y_new, metric)
+        return test_result
+
+    def test_hypothesis_strat_confint(self, Z: pd.DataFrame,
+                            metric: Optional[Callable[[Any], float]] = None,
+                            strata_col: str = '',
+                            weights: Dict[str, float] = None) -> int:
+        """
+        Perform stratification with confidence interval
+        :param X: Null hypothesis distribution
+        :param Y: Alternative hypothesis distribution
+        :returns: Ratio of rejected H0 hypotheses to number of all tests
+        """
+        metric_diffs: List[float] = []
+        X = Z.loc[Z['group'] == 'A']
+        Y = Z.loc[Z['group'] == 'B']
+        for _ in tqdm(range(self.n_boot_samples)):
+            x_strata_metric = 0
+            y_strata_metric = 0
+            for strat in weights.keys():
+                X_strata = X.loc[X[strata_col] == strat, self.target]
+                Y_strata = Y.loc[Y[strata_col] == strat, self.target]
+                x_strata_metric += (metric(np.random.choice(X_strata, size=X_strata.size // 2, replace=False)) * weights[strat])
+                y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.size // 2, replace=False)) * weights[strat])
+            metric_diffs.append(metric(x_strata_metric) - metric(y_strata_metric))
+        pd_metric_diffs = pd.DataFrame(metric_diffs)
+        # print(pd_metric_diffs.var())
+
+        left_quant = self.__alpha / 2
+        right_quant = 1 - self.__alpha / 2
+        ci = pd_metric_diffs.quantile([left_quant, right_quant])
+        ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
+
+        test_result: int = 0 # 0 - cannot reject H0, 1 - reject H0
+        if ci_left > 0 or ci_right < 0: # left border of ci > 0 or right border of ci < 0
+            test_result = 1
+
         return test_result
 
     def test_hypothesis_boot_est(self, X: np.array, Y: np.array,
@@ -140,7 +157,7 @@ class ABTest:
         false_positive = min(criticals) / pd_metric_diffs.shape[0]
         return false_positive
 
-    def test_hypothesis_confint(self, X: np.array, Y: np.array,
+    def test_hypothesis_boot_confint(self, X: np.array, Y: np.array,
                         metric: Optional[Callable[[Any], float]] = None) -> int:
         """
         Perform bootstrap confidence interval
@@ -154,6 +171,7 @@ class ABTest:
             y_boot = np.random.choice(Y, size=Y.size, replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
+        # print(pd_metric_diffs.var())
 
         left_quant = self.__alpha / 2
         right_quant = 1 - self.__alpha / 2
@@ -191,9 +209,9 @@ class ABTest:
         pvalue = T / self.n_boot_samples
         return pvalue
 
-    def mde(self, n_iter: int = 20000, test_type: str = 'means',
+    def mde(self, n_iter: int = 20000, strategy: str = 'means', strata: Optional[str] = '',
             n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
-            metric: Optional[Callable[[Any], float]] = None,
+            metric: Optional[Callable[[Any], float]] = None, weights: Optional[Dict[str, float]] = None,
             use_correction: bool = True, to_csv: bool = False, csv_name: str = None) -> Dict[float, Dict[float, float]]:
         if n_boot_samples < 1:
             raise Exception('Number of bootstrap samples must be 1 or more. Your input: {}.'.format(n_boot_samples))
@@ -204,22 +222,29 @@ class ABTest:
             imitation_log[split_rate] = {}
             for inc in self.increment_list:
                 imitation_log[split_rate][inc] = 0
-                for _ in range(n_iter):
-                    control, treatment = self._split_data(self.datasets['X'])
+                for it in range(n_iter):
+                    print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
+                    X_with_groups = self._split_data(self.datasets['X'], split_rate)
+                    control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(), \
+                                         X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
                     treatment = self._add_increment(treatment, inc)
+                    # control, treatment = self._split_data(self.datasets['X'], split_rate)
 
-                    if test_type == 'means':
+                    if strategy == 'means':
                         pvalue: float = self.test_hypothesis(control, treatment, use_correction=use_correction)
                         if pvalue <= self.__alpha:
                             imitation_log[split_rate][inc] += 1
-                    elif test_type == 'boot_est':
+                    elif strategy == 'boot_est':
                         pvalue: float = self.test_hypothesis_boot_est(control, treatment, metric=metric)
                         if pvalue <= self.__alpha:
                             imitation_log[split_rate][inc] += 1
-                    elif test_type == 'confint':
-                        test_result: int = self.test_hypothesis_confint(control, treatment, metric=metric)
+                    elif strategy == 'boot_confint':
+                        test_result: int = self.test_hypothesis_boot_confint(control, treatment, metric=metric)
                         imitation_log[split_rate][inc] += test_result
-                    elif test_type == 'buckets':
+                    elif strategy == 'strata_confint':
+                        test_result: int = self.test_hypothesis_strat_confint(X_with_groups, metric=metric, strata_col=strata, weights=weights)
+                        imitation_log[split_rate][inc] += test_result
+                    elif strategy == 'buckets':
                         test_result: int = self.test_hypothesis_buckets(control, treatment, metric=metric, n_buckets=n_buckets)
                         imitation_log[split_rate][inc] += test_result
 
