@@ -2,10 +2,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.stats.api as sms
 import math, os
-import matplotlib.pyplot as plt
 from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode
-from typing import Dict, List, Tuple, Any, Union, Optional, Callable
+from typing import Dict, List, Any, Union, Optional, Callable
 from tqdm.auto import tqdm
 from .splitter import Splitter
 
@@ -45,19 +44,31 @@ class ABTest:
         return f"ABTest(alpha={self.__alpha}, alternative='{self.__alternative}')"
 
     def _add_increment(self, X: np.array, inc_value: Union[float, int]) -> np.array:
-        """Add constant increment to a list"""
+        """
+        Add constant increment to a list
+        :param X: Numpy array to modify
+        :param inc_value: Constant addendum to each value
+        :returns: Modified X array
+        """
         return X + inc_value
 
     def _split_data(self, X: pd.DataFrame, split_rate: float) -> pd.DataFrame:
-        """Split data into two groups"""
+        """
+        Split data and add group column
+        :param X: Pandas DataFrame to split
+        :param split_rate: Split rate of control/treatment
+        :return: DataFrame with additional 'group' column
+        """
         X_with_groups = self.splitter.fit(X, split_rate)
-        # control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(),\
-        #                      X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
-        # return control, treatment
         return X_with_groups
 
     def _read_file(path: str) -> pd.DataFrame:
-        """Read file and return pandas dataframe"""
+        """
+        Read file and return pandas dataframe
+        :param path: Path to file
+        :returns: Pandas DataFrame
+        """
+        df = None
         _, file_ext = os.path.splitext(path)
         if file_ext == '.csv':
             df = pd.read_csv(path, encoding='utf8')
@@ -66,7 +77,13 @@ class ABTest:
         return df
 
     def _generate_distribution(cls, dist_type: str, params: tuple, n_samples: int) -> np.array:
-        """Return distribution by type, with given parameters and number of samples."""
+        """
+        Return distribution by type, with given parameters and number of samples
+        :param dist_type: Distribution type (normal, binomial)
+        :param params: Params of a distribution
+        :param n_samples: Number of observations
+        :returns: Numpy array of desired distribution
+        """
         if dist_type == 'normal':
             return np.random.normal(*params, n_samples)
         elif dist_type == 'binomial':
@@ -74,7 +91,15 @@ class ABTest:
 
     def test_hypothesis_buckets(self, X: np.array, Y: np.array,
                                 metric: Optional[Callable[[Any], float]] = None,
-                                n_buckets: int = 1000):
+                                n_buckets: int = 1000) -> int:
+        """
+        Perform buckets hypothesis testing
+        :param X: Null hypothesis distribution
+        :param Y: Alternative hypothesis distribution
+        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
+        :param n_buckets: Number of buckets
+        :return: Test result: 1 - significant different, 0 - insignificant difference
+        """
         np.random.shuffle(X)
         np.random.shuffle(Y)
         X_new = np.array([ metric(x) for x in np.array_split(X, n_buckets) ])
@@ -98,9 +123,10 @@ class ABTest:
                             weights: Dict[str, float] = None) -> int:
         """
         Perform stratification with confidence interval
-        :param X: Null hypothesis distribution
-        :param Y: Alternative hypothesis distribution
-        :returns: Ratio of rejected H0 hypotheses to number of all tests
+        :param Z: Pandas DataFrame for analysis
+        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
+        :param strata_col: Column name of strata column
+        :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         metric_diffs: List[float] = []
         X = Z.loc[Z['group'] == 'A']
@@ -115,7 +141,6 @@ class ABTest:
                 y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.size // 2, replace=False)) * weights[strat])
             metric_diffs.append(metric(x_strata_metric) - metric(y_strata_metric))
         pd_metric_diffs = pd.DataFrame(metric_diffs)
-        # print(pd_metric_diffs.var())
 
         left_quant = self.__alpha / 2
         right_quant = 1 - self.__alpha / 2
@@ -134,6 +159,7 @@ class ABTest:
         Perform bootstrap confidence interval with
         :param X: Null hypothesis distribution
         :param Y: Alternative hypothesis distribution
+        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Type I error rate
         """
         metric_diffs: List[float] = []
@@ -163,6 +189,7 @@ class ABTest:
         Perform bootstrap confidence interval
         :param X: Null hypothesis distribution
         :param Y: Alternative hypothesis distribution
+        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         metric_diffs: List[float] = []
@@ -171,7 +198,6 @@ class ABTest:
             y_boot = np.random.choice(Y, size=Y.size, replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
-        # print(pd_metric_diffs.var())
 
         left_quant = self.__alpha / 2
         right_quant = 1 - self.__alpha / 2
@@ -182,7 +208,6 @@ class ABTest:
         if ci_left > 0 or ci_right < 0: # left border of ci > 0 or right border of ci < 0
                 test_result = 1
 
-        # self.plot_distribution(metric_diffs, ci, f'./media/custom_metrics/custom_dist_{np.random.randint(0, 10000, 1)[0]}.png')
         return test_result
 
     def test_hypothesis(self, X: np.array, Y: np.array, use_correction: bool = True) -> float:
@@ -190,8 +215,6 @@ class ABTest:
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
         :param Y: Alternative hypothesis distribution
-        :param test_type: Test that will be performed on data. Possible values: 'means', 'good_fit'
-        :param use_bootstrap: Flag whether to use bootstrap samplings or not
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         T: int = 0
@@ -212,7 +235,21 @@ class ABTest:
     def mde(self, n_iter: int = 20000, strategy: str = 'means', strata: Optional[str] = '',
             n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
             metric: Optional[Callable[[Any], float]] = None, weights: Optional[Dict[str, float]] = None,
-            use_correction: bool = True, to_csv: bool = False, csv_name: str = None) -> Dict[float, Dict[float, float]]:
+            use_correction: bool = True, to_csv: bool = False, csv_path: str = None) -> Dict[float, Dict[float, float]]:
+        """
+        Simulation process of determining appropriate split rate and increment rate for experiment
+        :param n_iter: Number of iterations of simulation
+        :param strategy: Name of strategy to use in experiment assessment
+        :param strata: Strata column
+        :param n_boot_samples: Number of bootstrap samples
+        :param n_buckets: Number of buckets
+        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
+        :param weights: Pre-experiment weights for strata column
+        :param use_correction: Whether or not to use correction for multiple tests
+        :param to_csv: Whether or not to save result to a .csv file
+        :param csv_path: CSV file path
+        :return: Dict with ratio of hypotheses rejected under certain split rate and increment
+        """
         if n_boot_samples < 1:
             raise Exception('Number of bootstrap samples must be 1 or more. Your input: {}.'.format(n_boot_samples))
         self.n_boot_samples = n_boot_samples
@@ -228,7 +265,6 @@ class ABTest:
                     control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(), \
                                          X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
                     treatment = self._add_increment(treatment, inc)
-                    # control, treatment = self._split_data(self.datasets['X'], split_rate)
 
                     if strategy == 'means':
                         pvalue: float = self.test_hypothesis(control, treatment, use_correction=use_correction)
@@ -257,7 +293,7 @@ class ABTest:
                 csv_pd = csv_pd.append(row)
 
         if to_csv:
-            csv_pd.to_csv(csv_name, index=False)
+            csv_pd.to_csv(csv_path, index=False)
         return dict(imitation_log)
 
     def use_datasets(self, X: np.array, Y: np.array) -> None:
@@ -278,7 +314,7 @@ class ABTest:
         self.datasets['X'] = X
         self.target = target
 
-    def load_dataset(self, path: str, data_type: str = 'discrete', target_col_name: str = None,
+    def load_dataset(self, path: str = '', data_type: str = 'discrete', target_col_name: str = None,
                      split_by_col_name: str = None, confound_col_name: str = None) -> None:
         """
         Load dataset for splitting with splitting parameters
