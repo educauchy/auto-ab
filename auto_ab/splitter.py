@@ -1,18 +1,15 @@
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Any, Union, Optional, Callable
+from typing import List, Tuple, Union, Callable
 import hashlib
 from collections import Counter
 import pprint
 
 
 class Splitter:
-    def __init__(self, split_rate: float = 0.5, confounding: List[str] = None,
-                 stratify: bool = False, stratify_by: List[str] = None) -> None:
+    def __init__(self, split_rate: float = 0.5, confounding: List[str] = None) -> None:
         self.split_rate = split_rate
         self.confounding = confounding
-        self.stratify = stratify
-        self.stratify_by = stratify_by
 
     def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]):
         pass
@@ -39,35 +36,10 @@ class Splitter:
             X.loc[np.logical_and.reduce(logicals), 'group'] = group_flag
         return X
 
-    def _stratify(self, X: pd.DataFrame, by: List[str] = None) -> pd.DataFrame:
-        """
-        Stratification of the dataset
-        :param X: Dataframe for stratification
-        :param by: List of columns on which to be stratified
-        :return: Initial dataframe with one more column: strata
-        """
-        X['strata'] = 0
-        X_unique_strata = X[by].drop_duplicates().reset_index(drop=True)
-        for i, row in X_unique_strata.iterrows():
-            logicals = []
-            for col in row.index:
-                logicals.append(np.array(X[col] == row[col]))
-            X.loc[np.logical_and.reduce(logicals), 'strata'] = i
-        return X
-
     def fit(self, X: pd.DataFrame, split_rate: float = None) -> pd.DataFrame:
         self.split_rate = split_rate if split_rate is not None else self.split_rate
-        if self.stratify:
-            X = self._stratify(X, by=self.stratify_by)
-            Xs = []
-            for strata in X.strata.unique():
-                X_strata = X.loc[X.strata == strata]
-                res = self._split(X_strata, self.split_rate, self.confounding)
-                Xs.append(res)
-            return Xs
-        else:
-            X = self._split(X, self.split_rate, self.confounding)
-            return X
+        X = self._split(X, self.split_rate, self.confounding)
+        return X
 
     def create_level(self, X: pd.DataFrame, id_column: str = '', salt: Union[str, int] = '',
                      n_buckets: int = 100) -> pd.DataFrame:
@@ -106,7 +78,7 @@ if __name__ == '__main__':
     pprint.pprint(Counter(level))
 
     # Test splitter
-    X = pd.read_csv('../data/external/bfp_15w.csv', sep=';', decimal=',')
+    # X = pd.read_csv('../data/external/bfp_15w.csv', sep=';', decimal=',')
     X = pd.DataFrame({
         'sex': ['f' for _ in range(14)] + ['m' for _ in range(6)],
         'married': ['yes' for _ in range(5)] + ['no' for _ in range(9)] + ['yes' for _ in range(4)] + ['no', 'no'],
@@ -114,7 +86,5 @@ if __name__ == '__main__':
     })
     conf = ['sex', 'married']
     stratify_by = ['country']
-    X_out = Splitter(split_rate=0.4, confounding=conf, stratify=True, stratify_by=stratify_by).fit(X)
-    for df in X_out:
-        print(df.sort_values(by=conf))
+    X_out = Splitter(split_rate=0.4, confounding=conf).fit(X)
 
