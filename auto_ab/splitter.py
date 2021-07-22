@@ -37,6 +37,12 @@ class Splitter:
         return X
 
     def fit(self, X: pd.DataFrame, split_rate: float = None) -> pd.DataFrame:
+        """
+        Splitting data
+        :param X: Pandas DataFrame to split
+        :param split_rate: Split rate of control to treatment
+        :return: DataFrame with additional 'group' column
+        """
         self.split_rate = split_rate if split_rate is not None else self.split_rate
         X = self._split(X, self.split_rate, self.confounding)
         return X
