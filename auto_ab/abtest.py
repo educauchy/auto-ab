@@ -89,6 +89,22 @@ class ABTest:
         elif dist_type == 'binomial':
             return np.random.binomial(*params, n_samples)
 
+    def delta_method(self, Z: pd.DataFrame, numerator: str = '', denominator: str = '') -> int:
+        pass
+
+    def linearization(self, Z: pd.DataFrame, numerator: str = '', denominator: str = '') -> pd.DataFrame:
+        """
+        Important: there is an assumption that all data is already grouped by user
+        :param Z: Pandas DataFrame for analysis
+        :param numerator: Column name of numerator of ratio metric
+        :param denominator: Column name of denominator of ratio metric
+        :return: DataFrame with additional column 'lnrzd_metric'
+        """
+        X = Z.loc[Z['group'] == 'A']
+        K = round(sum(X[numerator]) / sum(X[denominator]), 4)
+        Z.loc[:, 'lnrzd_metric'] = Z[numerator] - K * Z[denominator]
+        return Z
+
     def test_hypothesis_buckets(self, X: np.array, Y: np.array,
                                 metric: Optional[Callable[[Any], float]] = None,
                                 n_buckets: int = 1000) -> int:
