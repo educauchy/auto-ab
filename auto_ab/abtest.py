@@ -3,7 +3,7 @@ import pandas as pd
 import statsmodels.stats.api as sms
 import math, os
 from collections import Counter, defaultdict
-from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode
+from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable
 from tqdm.auto import tqdm
 from .splitter import Splitter
@@ -106,14 +106,69 @@ class ABTest:
         self.dataset = self._read_file(path)
         self.target = target
 
+    def ratio_taylor(self, numerator: str = '', denominator: str = '') -> int:
+        """
+        Calculate expectation and variance of ratio for each group
+        and then use t-test for hypothesis testing
+        Source: http://www.stat.cmu.edu/~hseltman/files/ratio.pdf
+        :param numerator:
+        :param denominator:
+        :return:
+        """
+        A = self.dataset[self.dataset.group == 'A']
+        B = self.dataset[self.dataset.group == 'B']
+        A_num = A[numerator]
+        A_den = A[denominator]
+        B_num = B[numerator]
+        B_den = B[denominator]
+
+        A_mean = A_num.mean() / A_den.mean() - A[[numerator, denominator]].cov()[0, 1] / (A_den.mean() ** 2) + A_den.var() * A_num.mean() / (A_den.mean() ** 3)
+        A_var = (A_num.mean() ** 2) / (A_den.mean() ** 2) * (A_num.var() / (A_num.mean() ** 2) - 2 * A[[numerator, denominator]].cov()[0, 1]) / (A_num.mean() * A_den.mean() + A_den.var() / (A_den.mean() ** 2))
+        B_mean = B_num.mean() / B_den.mean() - B[[numerator, denominator]].cov()[0, 1] / (B_den.mean() ** 2) + B_den.var() * B_num.mean() / (B_den.mean() ** 3)
+        B_var = (B_num.mean() ** 2) / (B_den.mean() ** 2) * (B_num.var() / (B_num.mean() ** 2) - 2 * B[[numerator, denominator]].cov()[0, 1]) / (B_num.mean() * B_den.mean() + B_den.var() / (B_den.mean() ** 2))
+
+        t_stat_empirical = (A_mean - B_mean) / (A_var / A.size + B_var / B.size) ** (1/2)
+        df = A.size + B.size - 2
+
+        test_result: int = 0
+        if self.__alternative == 'two-sided':
+            lcv, rcv = t.ppf(self.__alpha / 2, df), t.ppf(1.0 - self.__alpha / 2, df)
+            if not (lcv < t_stat_empirical < rcv):
+                test_result = 1
+        elif self.__alternative == 'left':
+            lcv = t.ppf(self.__alpha, df)
+            if t_stat_empirical < lcv:
+                test_result = 1
+        elif self.__alternative == 'right':
+            rcv = t.ppf(1 - self.__alpha, df)
+            if t_stat_empirical > rcv:
+                test_result = 1
+
+        return test_result
+
     def delta_method(self, numerator: str = '', denominator: str = '') -> int:
-        pass
+        """
+
+        Source: https://arxiv.org/pdf/1803.06336.pdf
+        :param numerator:
+        :param denominator:
+        :return:
+        """
+        A = self.dataset[self.dataset.group == 'A']
+        B = self.dataset[self.dataset.group == 'B']
+        A_num_mean = A[numerator].mean()
+        A_den_mean = A[denominator].mean()
+        B_num_mean = B[numerator].mean()
+        B_den_mean = B[denominator].mean()
+        Z_A = A_num_mean / A_den_mean + (A[numerator] - A_num_mean / A_den_mean * A[denominator]) / A_den_mean
+        Z_B = B_num_mean / B_den_mean + (B[numerator] - B_num_mean / B_den_mean * B[denominator]) / B_den_mean
 
     def linearization(self, is_grouped: bool = False, numerator: str = '', denominator: str = '') -> None:
         """
         Important: there is an assumption that all data is already grouped by user
         s.t. numerator for user = sum of numerators for user for different time periods
         and denominator for user = sum of denominators for user for different time periods
+        Source: https://research.yandex.com/publications/148
         :param numerator: Column name of numerator of ratio metric
         :param denominator: Column name of denominator of ratio metric
         :return: None
