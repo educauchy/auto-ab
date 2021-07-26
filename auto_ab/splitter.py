@@ -1,20 +1,21 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Union, Callable
+from typing import List, Tuple, Union, Callable, Optional
 import hashlib
 from collections import Counter
 import pprint
+from sklearn.model_selection import train_test_split
 
 
 class Splitter:
-    def __init__(self, split_rate: float = 0.5, confounding: List[str] = None) -> None:
+    def __init__(self, split_rate: float = 0.5, confounding: Optional[List[str]] = None) -> None:
         self.split_rate = split_rate
         self.confounding = confounding
 
     def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]):
         pass
 
-    def _split(self, X: pd.DataFrame, split_rate: float = 0.5, confounding: List[str] = None) -> pd.DataFrame:
+    def _split(self, X: pd.DataFrame, target: str = '',split_rate: float = 0.5) -> pd.DataFrame:
         """
         Splitting of the dataset
         :param X: Dataframe for splitting
@@ -22,21 +23,19 @@ class Splitter:
         :param confounding: List of confounding variables
         :return: Initial dataframe with one more column: group
         """
-        X = X.sample(frac=1).reset_index(drop=True)
-        X['group'] = ''
-        X_unique_conf = X.groupby(by=confounding).group.count().reset_index()
-        X_unique_conf.rename(columns={'group': 'cnt_obs'}, inplace=True)
-        for _, row in X_unique_conf.iterrows():
-            A_len = int(round(row['cnt_obs'] * split_rate))
-            B_len = row['cnt_obs'] - A_len
-            group_flag = ['A' for _ in range(A_len)] + ['B' for _ in range(B_len)]
-            logicals = []
-            for col in row.index.drop(labels=['cnt_obs']):
-                logicals.append(np.array(X[col] == row[col]))
-            X.loc[np.logical_and.reduce(logicals), 'group'] = group_flag
-        return X
+        X_data = X[X.columns[~X.columns.isin([target])]]
+        X_target = X[target]
 
-    def fit(self, X: pd.DataFrame, split_rate: float = None) -> pd.DataFrame:
+        A_data, B_data, A_target, B_target = train_test_split(X_data, X_target, train_size=split_rate, random_state=0)
+        A_data.loc[:, 'group'] = 'A'
+        A_data.loc[:, target] = A_target
+        B_data.loc[:, 'group'] = 'B'
+        B_data.loc[:, target] = B_target
+        Z = pd.concat([A_data, B_data]).reset_index(drop=True)
+
+        return Z
+
+    def fit(self, X: pd.DataFrame, target: str = '', split_rate: float = None) -> pd.DataFrame:
         """
         Splitting data
         :param X: Pandas DataFrame to split
@@ -44,7 +43,7 @@ class Splitter:
         :return: DataFrame with additional 'group' column
         """
         self.split_rate = split_rate if split_rate is not None else self.split_rate
-        X = self._split(X, self.split_rate, self.confounding)
+        X = self._split(X, target, self.split_rate)
         return X
 
     def create_level(self, X: pd.DataFrame, id_column: str = '', salt: Union[str, int] = '',
@@ -93,4 +92,5 @@ if __name__ == '__main__':
     conf = ['sex', 'married']
     stratify_by = ['country']
     X_out = Splitter(split_rate=0.4, confounding=conf).fit(X)
+
 
