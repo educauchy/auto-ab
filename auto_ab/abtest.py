@@ -16,6 +16,7 @@ class ABTest:
         self.alternative = alternative      # use self.__alternative everywhere in the class
         self.target: Optional[str] = None
         self.dataset: pd.DataFrame = None
+        self.initial_dataset: pd.DataFrame = None    # for ratio metrics to keep old dataset
         self.splitter: Splitter = None
         self.split_rates: List[float] = None
         self.increment_list: List[float] = None
@@ -61,7 +62,7 @@ class ABTest:
         :param split_rate: Split rate of control/treatment
         :return: None
         """
-        self.dataset = self.splitter.fit(self.dataset, split_rate)
+        self.dataset = self.splitter.fit(self.dataset, self.target, split_rate)
 
     def _read_file(self, path: str) -> pd.DataFrame:
         """
@@ -76,6 +77,12 @@ class ABTest:
         elif file_ext == '.xls' or file_ext == '.xlsx':
             df = pd.read_excel(path, encoding='utf8')
         return df
+
+    def _linearize(self, numerator: str = '', denominator: str = ''):
+            X = self.dataset.loc[self.dataset['group'] == 'A']
+            K = round(sum(X[numerator]) / sum(X[denominator]), 4)
+            self.dataset.loc[:, f'{numerator}_{denominator}'] = self.dataset[numerator] - K * self.dataset[denominator]
+            self.target = f'{numerator}_{denominator}'
 
     def set_increment(self, inc_var: List[float] = None, extra_params: Dict[str, float] = None) -> None:
         self.increment_list = inc_var
@@ -102,18 +109,21 @@ class ABTest:
     def delta_method(self, numerator: str = '', denominator: str = '') -> int:
         pass
 
-    def linearization(self, numerator: str = '', denominator: str = '') -> None:
+    def linearization(self, is_grouped: bool = False, numerator: str = '', denominator: str = '') -> None:
         """
         Important: there is an assumption that all data is already grouped by user
-        :param Z: Pandas DataFrame for analysis
+        s.t. numerator for user = sum of numerators for user for different time periods
+        and denominator for user = sum of denominators for user for different time periods
         :param numerator: Column name of numerator of ratio metric
         :param denominator: Column name of denominator of ratio metric
         :return: None
         """
-        X = self.dataset.loc[self.dataset['group'] == 'A']
-        K = round(sum(X[numerator]) / sum(X[denominator]), 4)
-        self.dataset.loc[:, 'lnrzd_metric'] = self.dataset[numerator] - K * self.dataset[denominator]
-        self.target = 'lnrzd_metric'
+        if not is_grouped:
+            not_ratio_columns = self.dataset.columns[~self.dataset.columns.isin([numerator, denominator])].tolist()
+            df_grouped = self.dataset.groupby(by=not_ratio_columns, as_index=False).agg({numerator: 'sum', denominator: 'sum'})
+            self.initial_dataset = self.dataset.copy(deep=True)
+            self.dataset = df_grouped
+        self._linearize(numerator, denominator)
 
     def test_hypothesis(self, X: np.array, Y: np.array) -> int:
         """
@@ -276,9 +286,9 @@ class ABTest:
 
         return pvalue
 
-    def mde_simulation(self, n_iter: int = 20000, strategy: str = 'means', strata: Optional[str] = '',
+    def mde_simulation(self, n_iter: int = 20000, strategy: str = 'simple_test', strata: Optional[str] = '',
             n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
-            metric: Optional[Callable[[Any], float]] = None, weights: Optional[Dict[str, float]] = None,
+            metric: Optional[Callable[[Any], float]] = None, strata_weights: Optional[Dict[str, float]] = None,
             use_correction: bool = True, to_csv: bool = False, csv_path: str = None) -> Dict[float, Dict[float, float]]:
         """
         Simulation process of determining appropriate split rate and increment rate for experiment
@@ -288,7 +298,7 @@ class ABTest:
         :param n_boot_samples: Number of bootstrap samples
         :param n_buckets: Number of buckets
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
-        :param weights: Pre-experiment weights for strata column
+        :param strata_weights: Pre-experiment weights for strata column
         :param use_correction: Whether or not to use correction for multiple tests
         :param to_csv: Whether or not to save result to a .csv file
         :param csv_path: CSV file path
@@ -325,10 +335,14 @@ class ABTest:
                         test_result: int = self.test_hypothesis_boot_confint(control, treatment, metric=metric)
                         imitation_log[split_rate][inc] += test_result
                     elif strategy == 'strata_confint':
-                        test_result: int = self.test_hypothesis_strat_confint(metric=metric, strata_col=strata, weights=weights)
+                        test_result: int = self.test_hypothesis_strat_confint(metric=metric,
+                                                                              strata_col=strata,
+                                                                              weights=strata_weights)
                         imitation_log[split_rate][inc] += test_result
                     elif strategy == 'buckets':
-                        test_result: int = self.test_hypothesis_buckets(control, treatment, metric=metric, n_buckets=n_buckets)
+                        test_result: int = self.test_hypothesis_buckets(control, treatment,
+                                                                        metric=metric,
+                                                                        n_buckets=n_buckets)
                         imitation_log[split_rate][inc] += test_result
 
                 imitation_log[split_rate][inc] /= n_iter
