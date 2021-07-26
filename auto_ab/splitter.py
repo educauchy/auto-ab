@@ -12,17 +12,15 @@ class Splitter:
         self.split_rate = split_rate
         self.confounding = confounding
 
-    def set_splitter(self, splitter: Callable[[], Tuple[np.array, np.array]]):
-        pass
+    def fit(self, X: pd.DataFrame, target: str = '', split_rate: float = None) -> pd.DataFrame:
+        """
+        Split DataFrame and add group column based on splitting
+        :param X: Pandas DataFrame to split
+        :param split_rate: Split rate of control to treatment
+        :return: DataFrame with additional 'group' column
+        """
+        self.split_rate = split_rate if split_rate is not None else self.split_rate
 
-    def _split(self, X: pd.DataFrame, target: str = '',split_rate: float = 0.5) -> pd.DataFrame:
-        """
-        Splitting of the dataset
-        :param X: Dataframe for splitting
-        :param split_rate: Split rate between control and treatment groups
-        :param confounding: List of confounding variables
-        :return: Initial dataframe with one more column: group
-        """
         X_data = X[X.columns[~X.columns.isin([target])]]
         X_target = X[target]
 
@@ -34,17 +32,6 @@ class Splitter:
         Z = pd.concat([A_data, B_data]).reset_index(drop=True)
 
         return Z
-
-    def fit(self, X: pd.DataFrame, target: str = '', split_rate: float = None) -> pd.DataFrame:
-        """
-        Splitting data
-        :param X: Pandas DataFrame to split
-        :param split_rate: Split rate of control to treatment
-        :return: DataFrame with additional 'group' column
-        """
-        self.split_rate = split_rate if split_rate is not None else self.split_rate
-        X = self._split(X, target, self.split_rate)
-        return X
 
     def create_level(self, X: pd.DataFrame, id_column: str = '', salt: Union[str, int] = '',
                      n_buckets: int = 100) -> pd.DataFrame:
@@ -83,7 +70,6 @@ if __name__ == '__main__':
     pprint.pprint(Counter(level))
 
     # Test splitter
-    # X = pd.read_csv('../data/external/bfp_15w.csv', sep=';', decimal=',')
     X = pd.DataFrame({
         'sex': ['f' for _ in range(14)] + ['m' for _ in range(6)],
         'married': ['yes' for _ in range(5)] + ['no' for _ in range(9)] + ['yes' for _ in range(4)] + ['no', 'no'],
