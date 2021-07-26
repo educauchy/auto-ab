@@ -14,7 +14,12 @@ class ABTest:
     def __init__(self, alpha: float = 0.05, alternative: str = 'one-sided') -> None:
         self.alpha = alpha                  # use self.__alpha everywhere in the class
         self.alternative = alternative      # use self.__alternative everywhere in the class
+        self.target: Optional[str] = None
         self.dataset: pd.DataFrame = None
+        self.splitter: Splitter = None
+        self.split_rates: List[float] = None
+        self.increment_list: List[float] = None
+        self.increment_extra: Dict[str, float] = None
 
     @property
     def alpha(self):
@@ -50,15 +55,13 @@ class ABTest:
         """
         return X + inc_value
 
-    def _split_data(self, X: pd.DataFrame, split_rate: float) -> pd.DataFrame:
+    def _split_data(self, split_rate: float) -> None:
         """
-        Split data and add group column
-        :param X: Pandas DataFrame to split
+        Add 'group' column
         :param split_rate: Split rate of control/treatment
-        :return: DataFrame with additional 'group' column
+        :return: None
         """
-        X_with_groups = self.splitter.fit(X, split_rate)
-        return X_with_groups
+        self.dataset = self.splitter.fit(self.dataset, split_rate)
 
     def _read_file(self, path: str) -> pd.DataFrame:
         """
@@ -78,20 +81,10 @@ class ABTest:
         self.increment_list = inc_var
         self.increment_extra = extra_params
 
-    def set_split_rates(self, split_rates: List[float] = None) -> None:
-        self.split_rates = split_rates
-
-    def set_splitter(self, splitter: Splitter) -> None:
-        """
-        Add splitter
-        :param splitter: Splitter instance of class Splitter
-        """
-        self.splitter = splitter
-
-    def use_dataset(self, X: np.array, target: str = None) -> None:
+    def use_dataset(self, X: pd.DataFrame, target: str = None) -> None:
         """
         Put dataset for analysis
-        :param X: Dataset for analysis
+        :param X: Pandas DataFrame for analysis
         :param target: Target column name
         """
         self.dataset = X
@@ -106,21 +99,21 @@ class ABTest:
         self.dataset = self._read_file(path)
         self.target = target
 
-    def delta_method(self, Z: pd.DataFrame, numerator: str = '', denominator: str = '') -> int:
+    def delta_method(self, numerator: str = '', denominator: str = '') -> int:
         pass
 
-    def linearization(self, Z: pd.DataFrame, numerator: str = '', denominator: str = '') -> pd.DataFrame:
+    def linearization(self, numerator: str = '', denominator: str = '') -> None:
         """
         Important: there is an assumption that all data is already grouped by user
         :param Z: Pandas DataFrame for analysis
         :param numerator: Column name of numerator of ratio metric
         :param denominator: Column name of denominator of ratio metric
-        :return: DataFrame with additional column 'lnrzd_metric'
+        :return: None
         """
-        X = Z.loc[Z['group'] == 'A']
+        X = self.dataset.loc[self.dataset['group'] == 'A']
         K = round(sum(X[numerator]) / sum(X[denominator]), 4)
-        Z.loc[:, 'lnrzd_metric'] = Z[numerator] - K * Z[denominator]
-        return Z
+        self.dataset.loc[:, 'lnrzd_metric'] = self.dataset[numerator] - K * self.dataset[denominator]
+        self.target = 'lnrzd_metric'
 
     def test_hypothesis(self, X: np.array, Y: np.array) -> int:
         """
@@ -136,6 +129,7 @@ class ABTest:
             _, pvalue = mannwhitneyu(X, Y, alternative=self.__alternative)
         if pvalue <= self.__alpha:
             test_result = 1
+
         return test_result
 
     def test_hypothesis_buckets(self, X: np.array, Y: np.array,
@@ -164,22 +158,21 @@ class ABTest:
                 modes, _ = mode(X)
                 return sum(modes) / len(modes)
             test_result = self.test_hypothesis_boot_confint(X_new, Y_new, metric)
+
         return test_result
 
-    def test_hypothesis_strat_confint(self, Z: pd.DataFrame,
-                            metric: Optional[Callable[[Any], float]] = None,
+    def test_hypothesis_strat_confint(self, metric: Optional[Callable[[Any], float]] = None,
                             strata_col: str = '',
                             weights: Dict[str, float] = None) -> int:
         """
         Perform stratification with confidence interval
-        :param Z: Pandas DataFrame for analysis
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :param strata_col: Column name of strata column
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         metric_diffs: List[float] = []
-        X = Z.loc[Z['group'] == 'A']
-        Y = Z.loc[Z['group'] == 'B']
+        X = self.dataset.loc[self.dataset['group'] == 'A']
+        Y = self.dataset.loc[self.dataset['group'] == 'B']
         for _ in tqdm(range(self.n_boot_samples)):
             x_strata_metric = 0
             y_strata_metric = 0
@@ -230,6 +223,7 @@ class ABTest:
             elif boot > 0 and boot > ci_right:
                 criticals[1] += 1
         false_positive = min(criticals) / pd_metric_diffs.shape[0]
+
         return false_positive
 
     def test_hypothesis_boot_confint(self, X: np.array, Y: np.array,
@@ -279,6 +273,7 @@ class ABTest:
                 T += 1
 
         pvalue = T / self.n_boot_samples
+
         return pvalue
 
     def mde_simulation(self, n_iter: int = 20000, strategy: str = 'means', strata: Optional[str] = '',
@@ -310,9 +305,9 @@ class ABTest:
                 imitation_log[split_rate][inc] = 0
                 for it in range(n_iter):
                     print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
-                    X_with_groups = self._split_data(self.dataset, split_rate)
-                    control, treatment = X_with_groups.loc[X_with_groups['group'] == 'A', self.target].to_numpy(), \
-                                         X_with_groups.loc[X_with_groups['group'] == 'B', self.target].to_numpy()
+                    self._split_data(split_rate)
+                    control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
+                                         self.dataset.loc[self.dataset['group'] == 'B', self.target].to_numpy()
                     treatment = self._add_increment(treatment, inc)
 
                     if strategy == 'simple_test':
@@ -330,7 +325,7 @@ class ABTest:
                         test_result: int = self.test_hypothesis_boot_confint(control, treatment, metric=metric)
                         imitation_log[split_rate][inc] += test_result
                     elif strategy == 'strata_confint':
-                        test_result: int = self.test_hypothesis_strat_confint(X_with_groups, metric=metric, strata_col=strata, weights=weights)
+                        test_result: int = self.test_hypothesis_strat_confint(metric=metric, strata_col=strata, weights=weights)
                         imitation_log[split_rate][inc] += test_result
                     elif strategy == 'buckets':
                         test_result: int = self.test_hypothesis_buckets(control, treatment, metric=metric, n_buckets=n_buckets)
