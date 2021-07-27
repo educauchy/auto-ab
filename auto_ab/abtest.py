@@ -4,7 +4,7 @@ import statsmodels.stats.api as sms
 import math, os
 from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
-from typing import Dict, List, Any, Union, Optional, Callable
+from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
 from .splitter import Splitter
 
@@ -78,11 +78,69 @@ class ABTest:
             df = pd.read_excel(path, encoding='utf8')
         return df
 
+    def _manual_ttest(self, A_mean: float, A_var: float, A_size: int, B_mean: float, B_var: float, B_size: int) -> int:
+        t_stat_empirical = (A_mean - B_mean) / (A_var / A_size + B_var / B_size) ** (1/2)
+        df = A_size + B_size - 2
+
+        test_result: int = 0
+        if self.__alternative == 'two-sided':
+            lcv, rcv = t.ppf(self.__alpha / 2, df), t.ppf(1.0 - self.__alpha / 2, df)
+            if not (lcv < t_stat_empirical < rcv):
+                test_result = 1
+        elif self.__alternative == 'left':
+            lcv = t.ppf(self.__alpha, df)
+            if t_stat_empirical < lcv:
+                test_result = 1
+        elif self.__alternative == 'right':
+            rcv = t.ppf(1 - self.__alpha, df)
+            if t_stat_empirical > rcv:
+                test_result = 1
+
+        return test_result
+
     def _linearize(self, numerator: str = '', denominator: str = ''):
             X = self.dataset.loc[self.dataset['group'] == 'A']
             K = round(sum(X[numerator]) / sum(X[denominator]), 4)
             self.dataset.loc[:, f'{numerator}_{denominator}'] = self.dataset[numerator] - K * self.dataset[denominator]
             self.target = f'{numerator}_{denominator}'
+
+    def _delta_params(self, df: pd.DataFrame, numerator: str, denominator: str = '') -> Tuple[float, float]:
+        """
+        Calculated expectation and variance for ratio metric using delta approximation
+        :param df: Pandas DataFrame of particular group (A, B, etc)
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
+        :return: Tuple with mean and variance of ratio
+        """
+        num = df[numerator]
+        den = df[denominator]
+        num_mean = num.mean()
+        num_var = num.var()
+        den_mean = den.mean()
+        den_var = den.var()
+        cov = df[[numerator, denominator]].cov()[0, 1]
+        n = len(num)
+
+        bias_correction = (den_mean / num_mean ** 3) * (num_var / n) - cov / (n * num_mean ** 2)
+        mean = den_mean / num_mean - 1 + bias_correction
+        var = den_var / num_mean ** 2 - 2 * (den_mean / num_mean ** 3) * cov + (den_mean ** 2 / num_mean ** 4) * num_var
+
+        return (mean, var)
+
+    def _taylor_params(self, df: pd.DataFrame, numerator: str, denominator: str = '') -> Tuple[float, float]:
+        """
+        Calculated expectation and variance for ratio metric using Taylor expansion approximation
+        :param df: Pandas DataFrame of particular group (A, B, etc)
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
+        :return: Tuple with mean and variance of ratio
+        """
+        num = df[numerator]
+        den = df[denominator]
+        mean = num.mean() / den.mean() - df[[numerator, denominator]].cov()[0, 1] / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
+        var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - 2 * df[[numerator, denominator]].cov()[0, 1]) / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
+
+        return (mean, var)
 
     def set_increment(self, inc_var: List[float] = None, extra_params: Dict[str, float] = None) -> None:
         self.increment_list = inc_var
@@ -111,57 +169,35 @@ class ABTest:
         Calculate expectation and variance of ratio for each group
         and then use t-test for hypothesis testing
         Source: http://www.stat.cmu.edu/~hseltman/files/ratio.pdf
-        :param numerator:
-        :param denominator:
-        :return:
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
+        :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
         A = self.dataset[self.dataset.group == 'A']
         B = self.dataset[self.dataset.group == 'B']
-        A_num = A[numerator]
-        A_den = A[denominator]
-        B_num = B[numerator]
-        B_den = B[denominator]
 
-        A_mean = A_num.mean() / A_den.mean() - A[[numerator, denominator]].cov()[0, 1] / (A_den.mean() ** 2) + A_den.var() * A_num.mean() / (A_den.mean() ** 3)
-        A_var = (A_num.mean() ** 2) / (A_den.mean() ** 2) * (A_num.var() / (A_num.mean() ** 2) - 2 * A[[numerator, denominator]].cov()[0, 1]) / (A_num.mean() * A_den.mean() + A_den.var() / (A_den.mean() ** 2))
-        B_mean = B_num.mean() / B_den.mean() - B[[numerator, denominator]].cov()[0, 1] / (B_den.mean() ** 2) + B_den.var() * B_num.mean() / (B_den.mean() ** 3)
-        B_var = (B_num.mean() ** 2) / (B_den.mean() ** 2) * (B_num.var() / (B_num.mean() ** 2) - 2 * B[[numerator, denominator]].cov()[0, 1]) / (B_num.mean() * B_den.mean() + B_den.var() / (B_den.mean() ** 2))
-
-        t_stat_empirical = (A_mean - B_mean) / (A_var / A.size + B_var / B.size) ** (1/2)
-        df = A.size + B.size - 2
-
-        test_result: int = 0
-        if self.__alternative == 'two-sided':
-            lcv, rcv = t.ppf(self.__alpha / 2, df), t.ppf(1.0 - self.__alpha / 2, df)
-            if not (lcv < t_stat_empirical < rcv):
-                test_result = 1
-        elif self.__alternative == 'left':
-            lcv = t.ppf(self.__alpha, df)
-            if t_stat_empirical < lcv:
-                test_result = 1
-        elif self.__alternative == 'right':
-            rcv = t.ppf(1 - self.__alpha, df)
-            if t_stat_empirical > rcv:
-                test_result = 1
+        A_mean, A_var = self._taylor_params(A, numerator, denominator)
+        B_mean, B_var = self._taylor_params(B, numerator, denominator)
+        test_result: int = self._manual_ttest(A_mean, A_var, A.size, B_mean, B_var, B.size)
 
         return test_result
 
     def delta_method(self, numerator: str = '', denominator: str = '') -> int:
         """
-
+        Delta method with bias correction for ratios
         Source: https://arxiv.org/pdf/1803.06336.pdf
-        :param numerator:
-        :param denominator:
-        :return:
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
+        :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
         A = self.dataset[self.dataset.group == 'A']
         B = self.dataset[self.dataset.group == 'B']
-        A_num_mean = A[numerator].mean()
-        A_den_mean = A[denominator].mean()
-        B_num_mean = B[numerator].mean()
-        B_den_mean = B[denominator].mean()
-        Z_A = A_num_mean / A_den_mean + (A[numerator] - A_num_mean / A_den_mean * A[denominator]) / A_den_mean
-        Z_B = B_num_mean / B_den_mean + (B[numerator] - B_num_mean / B_den_mean * B[denominator]) / B_den_mean
+
+        A_mean, A_var = self._delta_params(A, numerator, denominator)
+        B_mean, B_var = self._delta_params(B, numerator, denominator)
+        test_result: int = self._manual_ttest(A_mean, A_var, A.size, B_mean, B_var, B.size)
+
+        return test_result
 
     def linearization(self, is_grouped: bool = False, numerator: str = '', denominator: str = '') -> None:
         """
@@ -169,8 +205,8 @@ class ABTest:
         s.t. numerator for user = sum of numerators for user for different time periods
         and denominator for user = sum of denominators for user for different time periods
         Source: https://research.yandex.com/publications/148
-        :param numerator: Column name of numerator of ratio metric
-        :param denominator: Column name of denominator of ratio metric
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
         :return: None
         """
         if not is_grouped:
@@ -342,9 +378,10 @@ class ABTest:
         return pvalue
 
     def mde_simulation(self, n_iter: int = 20000, strategy: str = 'simple_test', strata: Optional[str] = '',
+            metric_type: str = 'solid', numerator: Optional[str] = '', denominator: Optional[str] = '',
             n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
             metric: Optional[Callable[[Any], float]] = None, strata_weights: Optional[Dict[str, float]] = None,
-            use_correction: bool = True, to_csv: bool = False, csv_path: str = None) -> Dict[float, Dict[float, float]]:
+            use_correction: Optional[bool] = True, to_csv: bool = False, csv_path: str = None) -> Dict[float, Dict[float, float]]:
         """
         Simulation process of determining appropriate split rate and increment rate for experiment
         :param n_iter: Number of iterations of simulation
@@ -378,6 +415,10 @@ class ABTest:
                     if strategy == 'simple_test':
                         test_result: int = self.test_hypothesis(control, treatment)
                         imitation_log[split_rate][inc] += test_result
+                    elif strategy == 'ratio_delta':
+                        pass
+                    elif strategy == 'ratio_taylor':
+                        pass
                     elif strategy == 'boot_hypothesis':
                         pvalue: float = self.test_boot_hypothesis(control, treatment, use_correction=use_correction)
                         if pvalue <= self.__alpha:
