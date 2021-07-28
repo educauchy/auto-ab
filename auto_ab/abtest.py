@@ -146,25 +146,80 @@ class ABTest:
         self.increment_list = inc_var
         self.increment_extra = extra_params
 
-    def use_dataset(self, X: pd.DataFrame, target: str = None) -> None:
+    def use_dataset(self, X: pd.DataFrame, id_col: str = None, target: Optional[str] = None,
+                    numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
         """
         Put dataset for analysis
         :param X: Pandas DataFrame for analysis
+        :param id_col: Id column name
         :param target: Target column name
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
         """
         self.dataset = X
+        self.id = id_col
         self.target = target
+        self.numerator = numerator
+        self.denominator = denominator
 
-    def load_dataset(self, path: str = '', target: str = None) -> None:
+    def load_dataset(self, path: str = '', id_col: str = None, target: Optional[str] = None,
+                     numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
         """
         Load dataset for analysis
         :param path: Path to the dataset for analysis
+        :param id_col: Id column name
         :param target: Target column name
+        :param numerator: Ratio numerator column name
+        :param denominator: Ratio denominator column name
         """
         self.dataset = self._read_file(path)
+        self.id = id_col
         self.target = target
+        self.numerator = numerator
+        self.denominator = denominator
 
-    def ratio_taylor(self, numerator: str = '', denominator: str = '') -> int:
+    def ratio_bootstrap(self) -> int:
+        A = self.dataset[self.dataset.group == 'A']
+        B = self.dataset[self.dataset.group == 'B']
+        a_metric_total = sum(A[self.numerator]) / sum(A[self.denominator])
+        b_metric_total = sum(B[self.numerator]) / sum(B[self.denominator])
+        origin_mean = b_metric_total - a_metric_total
+        boot_diffs = []
+        boot_a_metric = []
+        boot_b_metric = []
+
+        for _ in tqdm(range(self.n_boot_samples)):
+            a_boot = A[A[self.id].isin(A[self.id].sample(A[self.id].nunique(), replace=True))]
+            b_boot = B[B[self.id].isin(B[self.id].sample(B[self.id].nunique(), replace=True))]
+            a_boot_metric = sum(a_boot[self.numerator]) / sum(a_boot[self.denominator])
+            b_boot_metric = sum(b_boot[self.numerator]) / sum(b_boot[self.denominator])
+            boot_a_metric.append(a_boot_metric)
+            boot_b_metric.append(b_boot_metric)
+            boot_diffs.append(b_boot_metric - a_boot_metric)
+
+        # correction
+        boot_mean = np.mean(boot_diffs)
+        delta = abs(origin_mean - boot_mean)
+        boot_diffs = [boot_diff + delta for boot_diff in boot_diffs]
+        delta_a = abs(a_metric_total - np.mean(boot_a_metric))
+        delta_b = abs(b_metric_total - np.mean(boot_b_metric))
+        boot_a_metric = [boot_a_diff + delta_a for boot_a_diff in boot_a_metric]
+        boot_b_metric = [boot_b_diff + delta_b for boot_b_diff in boot_b_metric]
+
+        pd_metric_diffs = pd.DataFrame(boot_diffs)
+
+        left_quant = self.__alpha / 2
+        right_quant = 1 - self.__alpha / 2
+        ci = pd_metric_diffs.quantile([left_quant, right_quant])
+        ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
+
+        test_result: int = 0 # 0 - cannot reject H0, 1 - reject H0
+        if ci_left > 0 or ci_right < 0: # left border of ci > 0 or right border of ci < 0
+            test_result = 1
+
+        return test_result
+
+    def ratio_taylor(self) -> int:
         """
         Calculate expectation and variance of ratio for each group
         and then use t-test for hypothesis testing
@@ -176,13 +231,13 @@ class ABTest:
         A = self.dataset[self.dataset.group == 'A']
         B = self.dataset[self.dataset.group == 'B']
 
-        A_mean, A_var = self._taylor_params(A, numerator, denominator)
-        B_mean, B_var = self._taylor_params(B, numerator, denominator)
+        A_mean, A_var = self._taylor_params(A, self.numerator, self.denominator)
+        B_mean, B_var = self._taylor_params(B, self.numerator, self.denominator)
         test_result: int = self._manual_ttest(A_mean, A_var, A.size, B_mean, B_var, B.size)
 
         return test_result
 
-    def delta_method(self, numerator: str = '', denominator: str = '') -> int:
+    def delta_method(self) -> int:
         """
         Delta method with bias correction for ratios
         Source: https://arxiv.org/pdf/1803.06336.pdf
@@ -193,13 +248,13 @@ class ABTest:
         A = self.dataset[self.dataset.group == 'A']
         B = self.dataset[self.dataset.group == 'B']
 
-        A_mean, A_var = self._delta_params(A, numerator, denominator)
-        B_mean, B_var = self._delta_params(B, numerator, denominator)
+        A_mean, A_var = self._delta_params(A, self.numerator, self.denominator)
+        B_mean, B_var = self._delta_params(B, self.numerator, self.denominator)
         test_result: int = self._manual_ttest(A_mean, A_var, A.size, B_mean, B_var, B.size)
 
         return test_result
 
-    def linearization(self, is_grouped: bool = False, numerator: str = '', denominator: str = '') -> None:
+    def linearization(self, is_grouped: bool = False) -> None:
         """
         Important: there is an assumption that all data is already grouped by user
         s.t. numerator for user = sum of numerators for user for different time periods
@@ -210,11 +265,14 @@ class ABTest:
         :return: None
         """
         if not is_grouped:
-            not_ratio_columns = self.dataset.columns[~self.dataset.columns.isin([numerator, denominator])].tolist()
-            df_grouped = self.dataset.groupby(by=not_ratio_columns, as_index=False).agg({numerator: 'sum', denominator: 'sum'})
+            not_ratio_columns = self.dataset.columns[~self.dataset.columns.isin([self.numerator, self.denominator])].tolist()
+            df_grouped = self.dataset.groupby(by=not_ratio_columns, as_index=False).agg({
+                self.numerator: 'sum',
+                self.denominator: 'sum'
+            })
             self.initial_dataset = self.dataset.copy(deep=True)
             self.dataset = df_grouped
-        self._linearize(numerator, denominator)
+        self._linearize(self.numerator, self.denominator)
 
     def test_hypothesis(self, X: np.array, Y: np.array) -> int:
         """
@@ -378,8 +436,7 @@ class ABTest:
         return pvalue
 
     def mde_simulation(self, n_iter: int = 20000, strategy: str = 'simple_test', strata: Optional[str] = '',
-            metric_type: str = 'solid', numerator: Optional[str] = '', denominator: Optional[str] = '',
-            n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
+            metric_type: str = 'solid', n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
             metric: Optional[Callable[[Any], float]] = None, strata_weights: Optional[Dict[str, float]] = None,
             use_correction: Optional[bool] = True, to_csv: bool = False, csv_path: str = None) -> Dict[float, Dict[float, float]]:
         """
