@@ -47,14 +47,24 @@ class ABTest:
     def __str__(self):
         return f"ABTest(alpha={self.__alpha}, alternative='{self.__alternative}')"
 
-    def _add_increment(self, X: np.array, inc_value: Union[float, int]) -> np.array:
+    def _add_increment(self, metric_type: str = None, X: Union[pd.DataFrame, np.array] = None,
+                       inc_value: Union[float, int] = None) -> np.array:
         """
         Add constant increment to a list
         :param X: Numpy array to modify
         :param inc_value: Constant addendum to each value
         :returns: Modified X array
         """
-        return X + inc_value
+        if metric_type == 'solid':
+            return X + inc_value
+        elif metric_type == 'ratio':
+            X.loc[:, 'inced'] = X[self.numerator] + inc_value
+            X.loc[:, 'diff'] = X[self.denominator] - X[self.numerator]
+            X.loc[:, 'rand_inc'] = np.random.randint(0, X['diff'] + 1, X.shape[0])
+            X.loc[:, 'numerator_new'] = X[self.numerator] + X['rand_inc']
+
+            X[self.numerator] = np.where(X['inced'] < X[self.denominator], X['inced'], X['numerator_new'])
+            return X[[self.numerator, self.denominator]]
 
     def _split_data(self, split_rate: float) -> None:
         """
@@ -62,7 +72,7 @@ class ABTest:
         :param split_rate: Split rate of control/treatment
         :return: None
         """
-        self.dataset = self.splitter.fit(self.dataset, self.target, split_rate)
+        self.dataset = self.splitter.fit(self.dataset, self.target, self.numerator, self.denominator, split_rate)
 
     def _read_file(self, path: str) -> pd.DataFrame:
         """
@@ -233,7 +243,7 @@ class ABTest:
 
         A_mean, A_var = self._taylor_params(A, self.numerator, self.denominator)
         B_mean, B_var = self._taylor_params(B, self.numerator, self.denominator)
-        test_result: int = self._manual_ttest(A_mean, A_var, A.size, B_mean, B_var, B.size)
+        test_result: int = self._manual_ttest(A_mean, A_var, A.shape[0], B_mean, B_var, B.shape[0])
 
         return test_result
 
@@ -250,7 +260,7 @@ class ABTest:
 
         A_mean, A_var = self._delta_params(A, self.numerator, self.denominator)
         B_mean, B_var = self._delta_params(B, self.numerator, self.denominator)
-        test_result: int = self._manual_ttest(A_mean, A_var, A.size, B_mean, B_var, B.size)
+        test_result: int = self._manual_ttest(A_mean, A_var, A.shape[0], B_mean, B_var, B.shape[0])
 
         return test_result
 
@@ -338,8 +348,8 @@ class ABTest:
             for strat in weights.keys():
                 X_strata = X.loc[X[strata_col] == strat, self.target]
                 Y_strata = Y.loc[Y[strata_col] == strat, self.target]
-                x_strata_metric += (metric(np.random.choice(X_strata, size=X_strata.size // 2, replace=False)) * weights[strat])
-                y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.size // 2, replace=False)) * weights[strat])
+                x_strata_metric += (metric(np.random.choice(X_strata, size=X_strata.shape[0] // 2, replace=False)) * weights[strat])
+                y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.shape[0] // 2, replace=False)) * weights[strat])
             metric_diffs.append(metric(x_strata_metric) - metric(y_strata_metric))
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
@@ -365,8 +375,8 @@ class ABTest:
         """
         metric_diffs: List[float] = []
         for _ in tqdm(range(self.n_boot_samples)):
-            x_boot = np.random.choice(X, size=X.size, replace=True)
-            y_boot = np.random.choice(Y, size=Y.size, replace=True)
+            x_boot = np.random.choice(X, size=X.shape[0], replace=True)
+            y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
@@ -396,8 +406,8 @@ class ABTest:
         """
         metric_diffs: List[float] = []
         for _ in tqdm(range(self.n_boot_samples)):
-            x_boot = np.random.choice(X, size=X.size, replace=True)
-            y_boot = np.random.choice(Y, size=Y.size, replace=True)
+            x_boot = np.random.choice(X, size=X.shape[0], replace=True)
+            y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
@@ -421,10 +431,10 @@ class ABTest:
         """
         T: int = 0
         for _ in range(self.n_boot_samples):
-            x_boot = np.random.choice(X, size=X.size, replace=True)
-            y_boot = np.random.choice(Y, size=Y.size, replace=True)
+            x_boot = np.random.choice(X, size=X.shape[0], replace=True)
+            y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
 
-            T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.size + np.var(y_boot) / y_boot.size)
+            T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.shape[0] + np.var(y_boot) / y_boot.shape[0])
             test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.__alternative)
 
             if (use_correction and (T_boot >= (test_res[1] / self.n_boot_samples))) or \
@@ -465,9 +475,14 @@ class ABTest:
                 for it in range(n_iter):
                     print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
                     self._split_data(split_rate)
-                    control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
-                                         self.dataset.loc[self.dataset['group'] == 'B', self.target].to_numpy()
-                    treatment = self._add_increment(treatment, inc)
+                    if metric_type == 'solid':
+                        control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
+                                             self.dataset.loc[self.dataset['group'] == 'B', self.target].to_numpy()
+                        treatment = self._add_increment('solid', treatment, inc)
+                    elif metric_type == 'ratio':
+                        control, treatment = self.dataset.loc[self.dataset['group'] == 'A', [self.numerator, self.denominator]], \
+                                             self.dataset.loc[self.dataset['group'] == 'B', [self.numerator, self.denominator]]
+                        treatment = self._add_increment('ratio', treatment, inc)
 
                     if strategy == 'simple_test':
                         test_result: int = self.test_hypothesis(control, treatment)
