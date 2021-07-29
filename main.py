@@ -2,8 +2,6 @@ import numpy as np
 import pandas as pd
 import os, sys, yaml, json
 from auto_ab import ABTest, Splitter
-import time
-from typing import Dict, List, Tuple, Any, Union
 
 
 try:
@@ -23,41 +21,40 @@ except Exception as e:
 
 def metric(X: np.array) -> float:
     return np.quantile(X, 0.1)
-    # return np.median(X)
 
 # Data
 mult = config['mult']
+sessions = np.random.randint(1, 10, 20 * mult)
 X = pd.DataFrame({
-    'id': list(range(0, 20 * mult)),
+    'id': np.random.choice(range(1, 100), 20 * mult),
     'sex': (['f' for _ in range(14)] + ['m' for _ in range(6)]) * mult,
     'married': (['yes' for _ in range(5)] + ['no' for _ in range(9)] + ['yes' for _ in range(4)] + ['no', 'no']) * mult,
     'country': ['US' for _ in range(14 * mult)] + ['UK' for _ in range(6 * mult)],
     'height': np.concatenate([np.random.normal(190, 2, 14 * mult), np.random.normal(182, 3, 6 * mult)]),
+    'clicks': [np.random.choice(range(0, session+1), 1, replace=False)[0] for session in sessions],
+    'sessions': sessions,
 })
+X.sort_values(by=['id'], inplace=True)
 
+# X = pd.DataFrame({
+#     'id':       [1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5, 6, 6, 7, 8, 9],
+#     'clicks':   [2, 4, 1, 9, 2, 6, 1, 7, 7, 9, 1, 1, 6, 5, 7, 8, 9],
+#     'sessions': [10, 36, 5, 55, 9, 7, 3, 11, 14, 16, 3, 5, 11, 12, 8, 8, 9],
+#     'group':    ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'B', 'A', 'A', 'B', 'A', 'B', 'B', 'A', 'A'],
+# })
 
-# Splitter
-splitter = Splitter(confounding=config['conf'], stratify=config['stratify'],\
-                    stratify_by=config['stratify_by'], split_rate=config['split_rate'])
+splitter = Splitter(split_rate=config['splitter']['split_rate'])
 
-# AB-test
-m = ABTest(alpha=config['alpha'], alternative=config['alternative'])
-m.use_dataset(X, target=config['target'])
-m.set_increment(inc_var=config['increment']['vars'], extra_params=config['increment']['extra_params'])
-m.set_split_rate(split_rates=config['split_rates'])
-m.set_splitter(splitter)
-
-
-print('Strata begin')
-start_time = time.time()
-res = m.mde(n_iter=config['n_iter'], n_boot_samples=config['n_boot_samples'], metric=metric, strategy='strata_confint',
-            strata=config['strata'], weights=config['weights'], to_csv=False, csv_name='./data/buckets_10quantile.csv')
+m = ABTest(alpha=config['hypothesis']['alpha'], alternative=config['hypothesis']['alternative'])
+m.use_dataset(X, id_col=config['data']['id_col'],
+              numerator=config['data']['numerator'],
+              denominator=config['data']['denominator'])
+m.split_rates = config['simulation']['split_rates']
+m.splitter = splitter
+m.set_increment(inc_var=config['simulation']['increment']['vars'],
+                extra_params=config['simulation']['increment']['extra_params'])
+res = m.mde_simulation(n_iter=config['simulation']['n_iter'], n_boot_samples=config['hypothesis']['n_boot_samples'],
+                       metric_type=config['metric']['metric_type'], metric=metric, strategy=config['hypothesis']['strategy'],
+                       strata=config['hypothesis']['strata'], strata_weights=config['hypothesis']['strata_weights'],
+                       to_csv=config['result']['to_csv'], csv_path=config['result']['csv_path'])
 print(json.dumps(res, indent=4))
-print("--- %s seconds ---" % (time.time() - start_time))
-
-print('Bootstrap begins')
-start_time = time.time()
-res = m.mde(n_iter=config['n_iter'], n_boot_samples=config['n_boot_samples'], metric=metric, strategy='boot_confint',
-            to_csv=False, csv_name='./data/buckets_10quantile.csv')
-print(json.dumps(res, indent=4))
-print("--- %s seconds ---" % (time.time() - start_time))

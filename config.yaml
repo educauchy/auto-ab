@@ -1,8 +1,0 @@
-n_samples: 10000
-dist1: 'binomial'
-dist1_params: [1, .5]
-dist2: 'binomial'
-dist2_params: [2, .2]
-power:
-  n_samples: 200
-  effect_size: .8

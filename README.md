@@ -9,8 +9,43 @@ Current features:
 - Custom metrics
 - Splitter
 - Test splitter (A/A-test)
-- Dataset generation
 - Custom split rate and increment rate
-- Power analysis
 - CUPED
 - CUPAC
+- Delta method on ratios
+- Taylor expansion on ratios
+- Linearization on ratios
+- Bootstrap on ratios
+
+Parameters for A/B-test are set in config file. The example of config file you can find below.
+
+```yaml
+metric:
+  metric_type: 'ratio'
+data:
+  id_col: 'id'
+  target: 'height'
+  numerator: 'clicks'
+  denominator: 'sessions'
+simulation:
+  n_iter: 100
+  split_rates: [0.1, 0.2, 0.3, 0.4, 0.5]
+  increment:
+    vars: [0, 1, 2, 3, 4, 5]
+    extra_params: []
+hypothesis:
+  alpha: 0.05
+  beta: 0.8
+  alternative: 'two-sided'
+  strategy: ''
+  strata: 'country'
+  strata_weights:
+    'US': 0.5
+    'UK': 0.5
+  n_boot_samples: 200
+result:
+  to_csv: True
+  csv_path: './result.csv'
+splitter:
+  split_rate: 0.5
+```
