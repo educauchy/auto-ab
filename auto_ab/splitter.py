@@ -12,7 +12,8 @@ class Splitter:
         self.split_rate = split_rate
         self.confounding = confounding
 
-    def fit(self, X: pd.DataFrame, target: str = '', split_rate: float = None) -> pd.DataFrame:
+    def fit(self, X: pd.DataFrame, target: str = None, numerator: str = None,
+            denominator: str = None, split_rate: float = None) -> pd.DataFrame:
         """
         Split DataFrame and add group column based on splitting
         :param X: Pandas DataFrame to split
@@ -21,14 +22,12 @@ class Splitter:
         """
         self.split_rate = split_rate if split_rate is not None else self.split_rate
 
-        X_data = X[X.columns[~X.columns.isin([target])]]
-        X_target = X[target]
+        target_ = X[[numerator, denominator]] if target is None else X[target]
 
-        A_data, B_data, A_target, B_target = train_test_split(X_data, X_target, train_size=split_rate, random_state=0)
+        A_data, B_data, A_target, B_target = train_test_split(X, target_, train_size=split_rate, random_state=0)
         A_data.loc[:, 'group'] = 'A'
-        A_data.loc[:, target] = A_target
         B_data.loc[:, 'group'] = 'B'
-        B_data.loc[:, target] = B_target
+
         Z = pd.concat([A_data, B_data]).reset_index(drop=True)
 
         return Z
