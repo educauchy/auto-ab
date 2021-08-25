@@ -19,13 +19,16 @@ class Graphics:
         plt.show()
         plt.close()
 
-    # def plot_distributions(self, save_path: str) -> None:
-    #     """Generate distributions and save plot on given path."""
-    #     bins = np.linspace(-10, 10, 100)
-    #     plt.hist(self.datasets['A']['data'], bins, alpha=0.5, label='control')
-    #     plt.hist(self.datasets['B']['data'], bins, alpha=0.5, label='treatment')
-    #     plt.legend(loc='upper right')
-    #     plt.savefig(save_path)
+    @staticmethod
+    def plot_distributions(X: pd.DataFrame, target: str, groups: str, bins: int = 30, save_path: str = None) -> None:
+        """Generate distributions and save plot on given path."""
+        # bins = np.linspace(-20, 20, 100)
+        plt.hist(X.loc[X[groups] == 'A', target], bins, alpha=0.5, label='control')
+        plt.hist(X.loc[X[groups] == 'B', target], bins, alpha=0.5, label='treatment')
+        plt.legend(loc='upper right')
+        plt.show()
+        plt.close()
+        # plt.savefig(save_path)
     #
     # def plot_distribution(self, X: Union[np.array], ci: np.array, save_path: str) -> None:
     #     """Generate distributions and save plot on given path."""
