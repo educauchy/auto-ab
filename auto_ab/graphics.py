@@ -20,21 +20,19 @@ class Graphics:
         plt.close()
 
     @staticmethod
-    def plot_distributions(X: pd.DataFrame, target: str, groups: str, bins: int = 30, save_path: str = None) -> None:
-        """Generate distributions and save plot on given path."""
-        # bins = np.linspace(-20, 20, 100)
+    def plot_distributions(X: pd.DataFrame, target: str, groups: str, bins: int = 30) -> None:
+        """Plot distributions and save plot on given path."""
         plt.hist(X.loc[X[groups] == 'A', target], bins, alpha=0.5, label='control')
         plt.hist(X.loc[X[groups] == 'B', target], bins, alpha=0.5, label='treatment')
         plt.legend(loc='upper right')
         plt.show()
         plt.close()
-        # plt.savefig(save_path)
     #
-    # def plot_distribution(self, X: Union[np.array], ci: np.array, save_path: str) -> None:
-    #     """Generate distributions and save plot on given path."""
-    #     bins = np.linspace(-10, 10, 100)
-    #     plt.hist(X, bins, alpha=0.9, label='Custom metric distribution')
-    #     plt.vlines(ci, ymin=0, ymax=20, linestyle='--')
-    #     plt.legend(loc='upper right')
-    #     plt.savefig(save_path)
-    #     plt.close()
+    def plot_distribution(self, X: Union[np.array], ci: np.array = None, bins: int = 30) -> None:
+        """Generate distributions and save plot on given path."""
+        plt.hist(X, bins, alpha=0.9, label='Custom metric distribution')
+        if ci is not None:
+            plt.vlines(ci, ymin=0, ymax=20, linestyle='--')
+        plt.legend(loc='upper right')
+        plt.show()
+        plt.close()

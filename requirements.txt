@@ -2,7 +2,7 @@ pandas
 numpy
 matplotlib
 seaborn
-scipy
+scipy=1.6.0
 statsmodels
 sklearn
 python-pptx
