@@ -1,18 +1,21 @@
 import numpy as np
 import pandas as pd
-import statsmodels.stats.api as sms
 import math, os
 from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
 from .splitter import Splitter
+from hyperopt import hp, fmin, tpe, Trials, space_eval
+from .pulse import Pulse
 
 
 class ABTest:
     """Perform AB-test"""
-    def __init__(self, alpha: float = 0.05, alternative: str = 'one-sided') -> None:
+    def __init__(self, alpha: float = 0.05, beta: float = 0.80,
+                 alternative: str = 'two-sided') -> None:
         self.alpha = alpha                  # use self.__alpha everywhere in the class
+        self.beta = beta                    # use self.__beta everywhere in the class
         self.alternative = alternative      # use self.__alternative everywhere in the class
         self.target: Optional[str] = None
         self.dataset: pd.DataFrame = None
@@ -27,18 +30,40 @@ class ABTest:
         return self.__alpha
 
     @alpha.setter
-    def alpha(self, value):
+    def alpha(self, value: float):
         if 0 <= value <= 1:
             self.__alpha = value
         else:
             raise Exception('Significance level must be inside interval [0, 1]. Your input: {}.'.format(value))
 
     @property
-    def alternative(self):
+    def beta(self):
+        return self.__beta
+
+    @beta.setter
+    def beta(self, value: float):
+        if 0 <= value <= 1:
+            self.__beta = value
+        else:
+            raise Exception('Power must be inside interval [0, 1]. Your input: {}.'.format(value))
+
+    # @property
+    # def split_rates(self) -> List[Union[float, int]]:
+    #     return self.split_ratex
+    #
+    # @split_rates.setter
+    # def split_rates(self, value: List[Union[float, int]]) -> None:
+    #     if isinstance(value, list) and len(value) > 0:
+    #         self.split_rates = sorted(value, reverse=True)
+    #     else:
+    #         raise Exception('Split rates must be a list. Your input: {}.'.format(value))
+
+    @property
+    def alternative(self) -> str:
         return self.__alternative
 
     @alternative.setter
-    def alternative(self, value):
+    def alternative(self, value: float) -> None:
         if value in ['less', 'greater', 'two-sided']:
             self.__alternative = value
         else:
@@ -445,10 +470,17 @@ class ABTest:
 
         return pvalue
 
+    def mde(self, control_mean: float, s_cont, s_treat, n_cont, n_treat) -> float:
+        m = t.ppf(self.__alpha / 2) + t.ppf(self.__beta)
+        s = np.sqrt()
+        mde = m * s / control_mean
+        pass
+
     def mde_simulation(self, n_iter: int = 20000, strategy: str = 'simple_test', strata: Optional[str] = '',
             metric_type: str = 'solid', n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
             metric: Optional[Callable[[Any], float]] = None, strata_weights: Optional[Dict[str, float]] = None,
-            use_correction: Optional[bool] = True, to_csv: bool = False, csv_path: str = None) -> Dict[float, Dict[float, float]]:
+            use_correction: Optional[bool] = True, to_csv: bool = False,
+            csv_path: str = None) -> Dict[float, Dict[float, float]]:
         """
         Simulation process of determining appropriate split rate and increment rate for experiment
         :param n_iter: Number of iterations of simulation
@@ -472,7 +504,9 @@ class ABTest:
             imitation_log[split_rate] = {}
             for inc in self.increment_list:
                 imitation_log[split_rate][inc] = 0
+                curr_iter = 0
                 for it in range(n_iter):
+                    curr_iter += 1
                     print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
                     self._split_data(split_rate)
                     if metric_type == 'solid':
@@ -512,8 +546,17 @@ class ABTest:
                                                                         metric=metric,
                                                                         n_buckets=n_buckets)
                         imitation_log[split_rate][inc] += test_result
+                    elif strategy == 'pulse':
+                        pulse = Pulse(control, treatment)
+                        pvalue: float = pulse.is_similar()
+                        if pvalue <= self.__alpha:
+                            imitation_log[split_rate][inc] += 1
 
-                imitation_log[split_rate][inc] /= n_iter
+                    # do not need to proceed if already achieved desired level
+                    if imitation_log[split_rate][inc] / curr_iter >= self.__beta:
+                        break
+
+                imitation_log[split_rate][inc] /= curr_iter
 
                 row = pd.DataFrame({
                     'split_rate': [split_rate],
@@ -524,3 +567,39 @@ class ABTest:
         if to_csv:
             csv_pd.to_csv(csv_path, index=False)
         return dict(imitation_log)
+
+    def mde_hyperopt(self, n_iter: int = 20000, strategy: str = 'simple_test', params: Dict[str, List[float]] = None,
+                     to_csv: bool = False, csv_path: str = None) -> None:
+        def objective(params) -> float:
+            split_rate, inc = params['split_rate'], params['inc']
+            self._split_data(split_rate)
+            control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
+                                 self.dataset.loc[self.dataset['group'] == 'B', self.target].to_numpy()
+            treatment = self._add_increment('solid', treatment, inc)
+            pvalue_mean = 0
+            for it in range(n_iter):
+                pvalue_mean += self.test_hypothesis(control, treatment)
+            pvalue_mean /= n_iter
+            return -pvalue_mean
+
+        space = {}
+        for param, values in params.items():
+            space[param] = hp.uniform(param, values[0], values[1])
+            # space[param] = hp.choice(param, )
+
+        trials = Trials()
+        print('\nSpace')
+        print(space)
+        best = fmin(objective,
+                    space,
+                    algo=tpe.suggest,
+                    max_evals=10,
+                    trials=trials
+                    )
+        print('\nBest')
+        print(best)
+
+        # Get the values of the optimal parameters
+        best_params = space_eval(space, best)
+        print('\nBest params')
+        print(best_params)
