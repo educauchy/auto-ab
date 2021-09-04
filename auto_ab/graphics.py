@@ -22,8 +22,13 @@ class Graphics:
     @staticmethod
     def plot_distributions(X: pd.DataFrame, target: str, groups: str, bins: int = 30) -> None:
         """Plot distributions and save plot on given path."""
-        plt.hist(X.loc[X[groups] == 'A', target], bins, alpha=0.5, label='control')
-        plt.hist(X.loc[X[groups] == 'B', target], bins, alpha=0.5, label='treatment')
+        a = X.loc[X[groups] == 'A', target]
+        b = X.loc[X[groups] == 'B', target]
+        a_mean = a.mean()
+        b_mean = b.mean()
+        plt.hist(a, bins, alpha=0.5, label='control')
+        plt.hist(b, bins, alpha=0.5, label='treatment')
+        plt.vlines([a_mean, b_mean], ymin=0, ymax=1000, linestyle='--')
         plt.legend(loc='upper right')
         plt.show()
         plt.close()
