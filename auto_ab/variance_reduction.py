@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
-from typing import Optional
+from typing import Optional, List
 import statsmodels.api as sm
-from typing import List
 
 
 class VarianceReduction:
@@ -72,18 +71,7 @@ class VarianceReduction:
         return X
 
 if __name__ == '__main__':
-    n = 200000
-    height = np.random.normal(175, 5, n)
-    weight = np.random.normal(80, 2, n)
-    df = pd.DataFrame({ # now = after experiment, prev = before experiment
-        'height_now': height, # height
-        'height_prev': height + np.random.normal(-3, 2, n),
-        'weight_now': height + np.random.normal(-5, 2, n),
-        'weight_prev': height + np.random.normal(2, 1, n),
-        'noise_now': np.random.normal(5, 3, n),
-        'noise_prev': np.random.normal(4, 3, n),
-        'groups': np.random.choice(['A', 'B'], size=n)
-    })
+    df = pd.read_csv('../data/internal/guide/ab_data.csv')
 
     vr = VarianceReduction()
     ans = vr.cupac(df, target_prev='height_prev', target_now='height_now',
