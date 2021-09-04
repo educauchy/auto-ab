@@ -3,19 +3,23 @@
 **auto_ab** is a library developed to automate routine tasks during runs of multiple online controlled experiments, also known as A/B-tests.
 
 Current features:
-- Classical hypothesis testing
-- Bootstrap hypothesis testing with 3 different approaches
-- Bucketing hypothesis testing
 - Custom metrics
-- Splitter
-- Test splitter (A/A-test)
-- Custom split rate and increment rate
-- CUPED
-- CUPAC
-- Delta method on ratios
-- Taylor expansion on ratios
-- Linearization on ratios
-- Bootstrap on ratios
+- Splitting
+  - Splitter
+  - Test splitter (A/A-test)
+  - Custom split rate and increment rate
+- Continuous metrics
+  - Classical hypothesis testing
+  - Bootstrap hypothesis testing with 3 different approaches
+  - Bucketing hypothesis testing
+- Ratio metrics
+  - Delta method on ratios
+  - Taylor expansion on ratios
+  - Linearization on ratios
+  - Bootstrap on ratios
+- Variance reduction
+  - CUPED
+  - CUPAC
 
 Parameters for A/B-test are set in config file. The example of config file you can find below.
 
