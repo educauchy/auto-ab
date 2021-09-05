@@ -1,16 +1,40 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Union, Callable, Optional
-import hashlib
-from collections import Counter
-import pprint
+from typing import List, Tuple, Dict, Union, Callable, Optional, Any
+import hashlib, pprint
+from collections import Counter, defaultdict
 from sklearn.model_selection import train_test_split
+from scipy.stats import ks_2samp
 
 
 class Splitter:
-    def __init__(self, split_rate: float = 0.5, confounding: Optional[List[str]] = None) -> None:
+    def __init__(self, split_rate: float = 0.5) -> None:
         self.split_rate = split_rate
-        self.confounding = confounding
+
+    def aa_test(self, X: pd.DataFrame = None, target: str = None, metric_type: str = 'solid',
+                alpha: float = 0.05, n_iter: int = 10000) -> float:
+        """
+        Perform A/A test
+        :param X: Pandas DataFrame to test
+        :param target: Target column name
+        :param metric_type: Test metric type
+        :param alpha: Significance level
+        :param n_iter: Number of iterations
+        :return: Share of iterations when control and treatment groups are equal
+        """
+        result: int = 0
+        for it in range(n_iter):
+            X = self.fit(X, target, split_rate=self.split_rate)
+            if metric_type == 'solid':
+                control, treatment = X.loc[X['group'] == 'A', target].to_numpy(), \
+                                     X.loc[X['group'] == 'B', target].to_numpy()
+
+            _, pvalue = ks_2samp(control, treatment)
+            if pvalue >= alpha:
+                result += 1
+        result /= n_iter
+
+        return result
 
     def fit(self, X: pd.DataFrame, target: str = None, numerator: str = None,
             denominator: str = None, split_rate: float = None) -> pd.DataFrame:
