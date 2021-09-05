@@ -8,8 +8,17 @@ from scipy.stats import ks_2samp
 
 
 class Splitter:
-    def __init__(self, split_rate: float = 0.5) -> None:
+    def __init__(self, split_rate: float = 0.5,
+                custom_splitter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None) -> None:
+        """
+        :param split_rate: Share of control group
+        :param custom_splitter: Custom splitter function which must take parameters:
+            X: Pandas DataFrame
+            target: Target column name
+            split_rate: Split rate
+        """
         self.split_rate = split_rate
+        self.custom_splitter = custom_splitter
 
     def aa_test(self, X: pd.DataFrame = None, target: str = None, metric_type: str = 'solid',
                 alpha: float = 0.05, n_iter: int = 10000) -> float:
@@ -44,15 +53,15 @@ class Splitter:
         :param split_rate: Split rate of control to treatment
         :return: DataFrame with additional 'group' column
         """
-        self.split_rate = split_rate if split_rate is not None else self.split_rate
-
-        target_ = X[[numerator, denominator]] if target is None else X[target]
-
-        A_data, B_data, A_target, B_target = train_test_split(X, target_, train_size=split_rate, random_state=0)
-        A_data.loc[:, 'group'] = 'A'
-        B_data.loc[:, 'group'] = 'B'
-
-        Z = pd.concat([A_data, B_data]).reset_index(drop=True)
+        if self.custom_splitter is None:
+            self.split_rate = split_rate if split_rate is not None else self.split_rate
+            target_ = X[[numerator, denominator]] if target is None else X[target]
+            A_data, B_data, A_target, B_target = train_test_split(X, target_, train_size=split_rate, random_state=0)
+            A_data.loc[:, 'group'] = 'A'
+            B_data.loc[:, 'group'] = 'B'
+            Z = pd.concat([A_data, B_data]).reset_index(drop=True)
+        else:
+            Z = self.custom_splitter(X, target, split_rate)
 
         return Z
 
