@@ -97,6 +97,7 @@ class ABTest:
         :param split_rate: Split rate of control/treatment
         :return: None
         """
+        split_rate: float = self.split_rate if split_rate is None else split_rate
         self.dataset = self.splitter.fit(self.dataset, self.target, self.numerator, self.denominator, split_rate)
 
     def _read_file(self, path: str) -> pd.DataFrame:
@@ -153,7 +154,7 @@ class ABTest:
         num_var = num.var()
         den_mean = den.mean()
         den_var = den.var()
-        cov = df[[numerator, denominator]].cov()[0, 1]
+        cov = df[[numerator, denominator]].cov().iloc[0, 1]
         n = len(num)
 
         bias_correction = (den_mean / num_mean ** 3) * (num_var / n) - cov / (n * num_mean ** 2)
@@ -213,19 +214,21 @@ class ABTest:
         self.numerator = numerator
         self.denominator = denominator
 
-    def ratio_bootstrap(self) -> int:
-        A = self.dataset[self.dataset.group == 'A']
-        B = self.dataset[self.dataset.group == 'B']
-        a_metric_total = sum(A[self.numerator]) / sum(A[self.denominator])
-        b_metric_total = sum(B[self.numerator]) / sum(B[self.denominator])
+    def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
+        if X is None and Y is None:
+            X = self.dataset[self.dataset.group == 'A']
+            Y = self.dataset[self.dataset.group == 'B']
+
+        a_metric_total = sum(X[self.numerator]) / sum(X[self.denominator])
+        b_metric_total = sum(Y[self.numerator]) / sum(Y[self.denominator])
         origin_mean = b_metric_total - a_metric_total
         boot_diffs = []
         boot_a_metric = []
         boot_b_metric = []
 
         for _ in tqdm(range(self.n_boot_samples)):
-            a_boot = A[A[self.id].isin(A[self.id].sample(A[self.id].nunique(), replace=True))]
-            b_boot = B[B[self.id].isin(B[self.id].sample(B[self.id].nunique(), replace=True))]
+            a_boot = X[X[self.id].isin(X[self.id].sample(X[self.id].nunique(), replace=True))]
+            b_boot = Y[Y[self.id].isin(Y[self.id].sample(Y[self.id].nunique(), replace=True))]
             a_boot_metric = sum(a_boot[self.numerator]) / sum(a_boot[self.denominator])
             b_boot_metric = sum(b_boot[self.numerator]) / sum(b_boot[self.denominator])
             boot_a_metric.append(a_boot_metric)
@@ -254,7 +257,7 @@ class ABTest:
 
         return test_result
 
-    def ratio_taylor(self) -> int:
+    def ratio_taylor(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
         """
         Calculate expectation and variance of ratio for each group
         and then use t-test for hypothesis testing
@@ -263,29 +266,31 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
-        A = self.dataset[self.dataset.group == 'A']
-        B = self.dataset[self.dataset.group == 'B']
+        if X is None and Y is None:
+            X = self.dataset[self.dataset.group == 'A']
+            Y = self.dataset[self.dataset.group == 'B']
 
-        A_mean, A_var = self._taylor_params(A, self.numerator, self.denominator)
-        B_mean, B_var = self._taylor_params(B, self.numerator, self.denominator)
-        test_result: int = self._manual_ttest(A_mean, A_var, A.shape[0], B_mean, B_var, B.shape[0])
+        A_mean, A_var = self._taylor_params(X, self.numerator, self.denominator)
+        B_mean, B_var = self._taylor_params(Y, self.numerator, self.denominator)
+        test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
 
-    def delta_method(self) -> int:
+    def delta_method(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
         """
         Delta method with bias correction for ratios
         Source: https://arxiv.org/pdf/1803.06336.pdf
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
+        :param X: Group A
+        :param Y: Group B
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
-        A = self.dataset[self.dataset.group == 'A']
-        B = self.dataset[self.dataset.group == 'B']
+        if X is None and Y is None:
+            X = self.dataset[self.dataset.group == 'A']
+            Y = self.dataset[self.dataset.group == 'B']
 
-        A_mean, A_var = self._delta_params(A, self.numerator, self.denominator)
-        B_mean, B_var = self._delta_params(B, self.numerator, self.denominator)
-        test_result: int = self._manual_ttest(A_mean, A_var, A.shape[0], B_mean, B_var, B.shape[0])
+        A_mean, A_var = self._delta_params(X, self.numerator, self.denominator)
+        B_mean, B_var = self._delta_params(Y, self.numerator, self.denominator)
+        test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
 
@@ -480,7 +485,7 @@ class ABTest:
             metric_type: str = 'solid', n_boot_samples: Optional[int] = 10000, n_buckets: Optional[int] = None,
             metric: Optional[Callable[[Any], float]] = None, strata_weights: Optional[Dict[str, float]] = None,
             use_correction: Optional[bool] = True, to_csv: bool = False,
-            csv_path: str = None) -> Dict[float, Dict[float, float]]:
+            csv_path: str = None, verbose: bool = False) -> Dict[float, Dict[float, float]]:
         """
         Simulation process of determining appropriate split rate and increment rate for experiment
         :param n_iter: Number of iterations of simulation
@@ -507,7 +512,8 @@ class ABTest:
                 curr_iter = 0
                 for it in range(n_iter):
                     curr_iter += 1
-                    print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
+                    if verbose:
+                        print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
                     self._split_data(split_rate)
                     if metric_type == 'solid':
                         control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
@@ -521,10 +527,12 @@ class ABTest:
                     if strategy == 'simple_test':
                         test_result: int = self.test_hypothesis(control, treatment)
                         imitation_log[split_rate][inc] += test_result
-                    elif strategy == 'ratio_delta':
-                        pass
+                    elif strategy == 'delta_method':
+                        test_result: int = self.delta_method(control, treatment)
+                        imitation_log[split_rate][inc] += test_result
                     elif strategy == 'ratio_taylor':
-                        pass
+                        test_result: int = self.ratio_taylor(control, treatment)
+                        imitation_log[split_rate][inc] += test_result
                     elif strategy == 'boot_hypothesis':
                         pvalue: float = self.test_boot_hypothesis(control, treatment, use_correction=use_correction)
                         if pvalue <= self.__alpha:

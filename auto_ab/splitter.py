@@ -14,18 +14,24 @@ class Splitter:
         :param split_rate: Share of control group
         :param custom_splitter: Custom splitter function which must take parameters:
             X: Pandas DataFrame
-            target: Target column name
+            target: Target column name (if continuous metric)
+            numerator: Numerator column name (if ratio metric)
+            denominator: Denominator column name (if ratio metric)
             split_rate: Split rate
         """
         self.split_rate = split_rate
         self.custom_splitter = custom_splitter
 
-    def aa_test(self, X: pd.DataFrame = None, target: str = None, metric_type: str = 'solid',
+    def aa_test(self, X: pd.DataFrame = None, target: str = None,
+                numerator: str = None, denominator: str = None,
+                metric_type: str = 'solid',
                 alpha: float = 0.05, n_iter: int = 10000) -> float:
         """
         Perform A/A test
         :param X: Pandas DataFrame to test
-        :param target: Target column name
+        :param target: Target column name (if continuous metric)
+        :numerator: Numerator column name (if ratio metric)
+        :denominator: Denominator column name (if ratio metric)
         :param metric_type: Test metric type
         :param alpha: Significance level
         :param n_iter: Number of iterations
@@ -33,14 +39,26 @@ class Splitter:
         """
         result: int = 0
         for it in range(n_iter):
-            X = self.fit(X, target, split_rate=self.split_rate)
             if metric_type == 'solid':
+                X = self.fit(X, target=target, split_rate=self.split_rate)
                 control, treatment = X.loc[X['group'] == 'A', target].to_numpy(), \
                                      X.loc[X['group'] == 'B', target].to_numpy()
+                _, pvalue = ks_2samp(control, treatment)
+                if pvalue >= alpha:
+                    result += 1
+            elif metric_type == 'ratio':
+                X = self.fit(X, numerator=numerator, denominator=denominator, split_rate=self.split_rate)
+                num_control, num_treatment = X.loc[X['group'] == 'A', numerator].to_numpy(), \
+                                                X.loc[X['group'] == 'B', numerator].to_numpy()
+                _, num_pvalue = ks_2samp(num_control, num_treatment)
 
-            _, pvalue = ks_2samp(control, treatment)
-            if pvalue >= alpha:
-                result += 1
+                den_control, den_treatment = X.loc[X['group'] == 'A', denominator].to_numpy(), \
+                                             X.loc[X['group'] == 'B', denominator].to_numpy()
+                _, den_pvalue = ks_2samp(den_control, den_treatment)
+
+                if num_pvalue >= alpha and den_pvalue >= alpha:
+                    result += 1
+
         result /= n_iter
 
         return result
@@ -54,9 +72,8 @@ class Splitter:
         :return: DataFrame with additional 'group' column
         """
         if self.custom_splitter is None:
-            self.split_rate = split_rate if split_rate is not None else self.split_rate
-            target_ = X[[numerator, denominator]] if target is None else X[target]
-            A_data, B_data, A_target, B_target = train_test_split(X, target_, train_size=split_rate, random_state=0)
+            split_rate = split_rate if split_rate is not None else self.split_rate
+            A_data, B_data = train_test_split(X, train_size=split_rate, random_state=0)
             A_data.loc[:, 'group'] = 'A'
             B_data.loc[:, 'group'] = 'B'
             Z = pd.concat([A_data, B_data]).reset_index(drop=True)

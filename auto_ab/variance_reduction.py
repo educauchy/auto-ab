@@ -40,7 +40,7 @@ class VarianceReduction:
         :param groups: Groups A and B column name
         :return: Pandas DataFrame with additional columns: target_pred and target_now_cuped
         """
-        X['target_pred'] = self._predict_target(X, target_prev, factors_prev, factors_now)
+        X.loc[:, 'target_pred'] = self._predict_target(X, target_prev, factors_prev, factors_now)
         X_new = self.cuped(X, target_now, groups, 'target_pred')
         return X_new
 

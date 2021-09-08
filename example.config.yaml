@@ -1,4 +1,3 @@
-mult: 10
 metric:
   metric_type: 'ratio' # solid / ratio
 data:
