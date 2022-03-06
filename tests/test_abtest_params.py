@@ -1,4 +1,4 @@
-from auto_ab import ABTest
+from app.auto_ab import ABTest
 import unittest
 import pytest
 import scipy
