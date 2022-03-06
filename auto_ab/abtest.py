@@ -7,7 +7,6 @@ from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
 from .splitter import Splitter
 from hyperopt import hp, fmin, tpe, Trials, space_eval
-from .pulse import Pulse
 
 
 class ABTest:
@@ -554,11 +553,6 @@ class ABTest:
                                                                         metric=metric,
                                                                         n_buckets=n_buckets)
                         imitation_log[split_rate][inc] += test_result
-                    elif strategy == 'pulse':
-                        pulse = Pulse(control, treatment)
-                        pvalue: float = pulse.is_similar()
-                        if pvalue <= self.__alpha:
-                            imitation_log[split_rate][inc] += 1
 
                     # do not need to proceed if already achieved desired level
                     if imitation_log[split_rate][inc] / curr_iter >= self.__beta:
