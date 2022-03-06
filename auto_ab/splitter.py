@@ -4,7 +4,10 @@ from typing import List, Tuple, Dict, Union, Callable, Optional, Any
 import hashlib, pprint
 from collections import Counter, defaultdict
 from sklearn.model_selection import train_test_split
-from scipy.stats import ks_2samp
+from sklearn.cluster import KMeans, DBSCAN
+from scipy.stats import ks_2samp, entropy
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
 
 
 class Splitter:
@@ -22,7 +25,42 @@ class Splitter:
         self.split_rate = split_rate
         self.custom_splitter = custom_splitter
 
-    def aa_test(self, X: pd.DataFrame = None, target: str = None,
+    def __clustering(self, X_full: pd.DataFrame = None, X: pd.DataFrame = None, n_clusters: int = None) -> np.array:
+        """
+        :param X_full: Pandas DataFrame to cluster
+        :param X: Pandas DataFrame to predict cluster_id
+        :param n_clusters: Number of clusters
+        :return: Numpy array with cluster id
+        """
+        kmeans = KMeans(n_clusters=n_clusters)
+        kmeans.fit(X_full)
+        cluster_id = kmeans.predict(X)
+
+        return cluster_id
+
+    def __kl_divergence(self, a_cluster_id: Union[np.array, List[int]] = None,
+                        b_cluster_id: Union[np.array, List[int]] = None, n_bins: int = 50) -> List[float, float]:
+        a = a_cluster_id
+        b = b_cluster_id
+
+        bins_arr = list(range(1, n_bins+1))
+        a = np.histogram(a, bins=bins_arr, density=True)[0]
+        b = np.histogram(b, bins=bins_arr, density=True)[0]
+
+        ent_ab = entropy(a, b)
+        ent_ba = entropy(b, a)
+
+        return [ent_ab, ent_ba]
+
+    def __model_classify(self, X: pd.DataFrame = None, target: np.array = None) -> float:
+        clf = RandomForestClassifier()
+        clf.fit(X, target)
+        pred = clf.predict_proba(X)
+        roc_auc = roc_auc_score(target, pred)
+
+        return roc_auc
+
+    def __alpha_simulation(self, X: pd.DataFrame = None, target: np.array = None,
                 numerator: str = None, denominator: str = None,
                 metric_type: str = 'solid',
                 alpha: float = 0.05, n_iter: int = 10000) -> float:
@@ -35,7 +73,7 @@ class Splitter:
         :param metric_type: Test metric type
         :param alpha: Significance level
         :param n_iter: Number of iterations
-        :return: Share of iterations when control and treatment groups are equal
+        :return: Actual alpha; Share of iterations when control and treatment groups are equal
         """
         result: int = 0
         for it in range(n_iter):
@@ -63,7 +101,24 @@ class Splitter:
 
         return result
 
-    def fit(self, X: pd.DataFrame, target: str = None, numerator: str = None,
+    def aa_test(self, X_full: pd.DataFrame = None, X: pd.DataFrame = None, target: np.array = None,
+                group_id: np.array = None, method: str = None):
+        if method == 'alpha-simulation':
+            actual_alpha = self.__alpha_simulation(X, target)
+            return actual_alpha
+        elif method == 'kl-divergence':
+            X_ext = X.copy()
+            X_ext['group_id'] = group_id
+            X_ext['cluster_id'] = self.__clustering(X_full, X, 50)
+            a = X_ext.loc[X_ext.group_id == 'CONTROL', 'cluster_id'].tolist()
+            b = X_ext.loc[X_ext.group_id == 'TREATMENT', 'cluster_id'].tolist()
+            kl_divs = self.__kl_divergence(a, b, 50)
+            return kl_divs
+        elif method == 'model-classify':
+            roc_auc = self.__model_classify(X, target)
+            return roc_auc
+
+    def fit(self, X: pd.DataFrame, target: np.array = None, numerator: str = None,
             denominator: str = None, split_rate: float = None) -> pd.DataFrame:
         """
         Split DataFrame and add group column based on splitting
