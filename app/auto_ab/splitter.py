@@ -40,7 +40,7 @@ class Splitter:
         return cluster_id
 
     def __kl_divergence(self, a_cluster_id: Union[np.array, List[int]] = None,
-                        b_cluster_id: Union[np.array, List[int]] = None, n_bins: int = 50) -> List[float, float]:
+                        b_cluster_id: Union[np.array, List[int]] = None, n_bins: int = 50) -> Tuple[float]:
         """
         Kullback-Leibler divergence for two arrays of cluster ids for A/A test
         :param a_cluster_id: List of cluster ids for group A
