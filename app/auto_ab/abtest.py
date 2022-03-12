@@ -11,8 +11,8 @@ from hyperopt import hp, fmin, tpe, Trials, space_eval
 
 class ABTest:
     """Perform AB-test"""
-    def __init__(self, alpha: float = 0.05, beta: float = 0.80,
-                 alternative: str = 'two-sided') -> None:
+    def __init__(self, alpha: float = 0.05, beta: float = 0.20,
+                 alternative: str = 'two-sided', split_ratios: Tuple[float] = (0.5, 0.5)) -> None:
         self.alpha = alpha                  # use self.__alpha everywhere in the class
         self.beta = beta                    # use self.__beta everywhere in the class
         self.alternative = alternative      # use self.__alternative everywhere in the class
@@ -20,6 +20,7 @@ class ABTest:
         self.dataset: pd.DataFrame = None
         self.initial_dataset: pd.DataFrame = None    # for ratio metrics to keep old dataset
         self.splitter: Splitter = None
+        self.split_ratios = split_ratios
         self.split_rates: List[float] = None
         self.increment_list: List[float] = None
         self.increment_extra: Dict[str, float] = None
@@ -33,7 +34,7 @@ class ABTest:
         if 0 <= value <= 1:
             self.__alpha = value
         else:
-            raise Exception('Significance level must be inside interval [0, 1]. Your input: {}.'.format(value))
+            raise Exception('Alpha must be inside interval [0, 1]. Your input: {}.'.format(value))
 
     @property
     def beta(self):
@@ -44,18 +45,18 @@ class ABTest:
         if 0 <= value <= 1:
             self.__beta = value
         else:
-            raise Exception('Power must be inside interval [0, 1]. Your input: {}.'.format(value))
+            raise Exception('Beta must be inside interval [0, 1]. Your input: {}.'.format(value))
 
-    # @property
-    # def split_rates(self) -> List[Union[float, int]]:
-    #     return self.split_ratex
-    #
-    # @split_rates.setter
-    # def split_rates(self, value: List[Union[float, int]]) -> None:
-    #     if isinstance(value, list) and len(value) > 0:
-    #         self.split_rates = sorted(value, reverse=True)
-    #     else:
-    #         raise Exception('Split rates must be a list. Your input: {}.'.format(value))
+    @property
+    def split_ratios(self) -> float:
+        return self.split_ratios
+
+    @split_ratios.setter
+    def split_ratios(self, value: Tuple[float]) -> None:
+        if isinstance(value, tuple) and len(value) == 2 and sum(value) == 1:
+            self.__split_ratios = value
+        else:
+            raise Exception('Split_ratios must be a tuple with two shares which has a sum of 1. Your input: {}.'.format(value))
 
     @property
     def alternative(self) -> str:
