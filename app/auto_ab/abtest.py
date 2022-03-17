@@ -26,22 +26,22 @@ class ABTest:
         self.increment_extra: Dict[str, float] = None
 
     @property
-    def alpha(self):
+    def alpha(self) -> float:
         return self.__alpha
 
     @alpha.setter
-    def alpha(self, value: float):
+    def alpha(self, value: float) -> None:
         if 0 <= value <= 1:
             self.__alpha = value
         else:
             raise Exception('Alpha must be inside interval [0, 1]. Your input: {}.'.format(value))
 
     @property
-    def beta(self):
+    def beta(self) -> float:
         return self.__beta
 
     @beta.setter
-    def beta(self, value: float):
+    def beta(self, value: float) -> None:
         if 0 <= value <= 1:
             self.__beta = value
         else:
@@ -70,7 +70,7 @@ class ABTest:
             raise Exception("Alternative must be either 'less', 'greater', or 'two-sided'. Your input: '{}'.".format(value))
 
     def __str__(self):
-        return f"ABTest(alpha={self.__alpha}, alternative='{self.__alternative}')"
+        return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
 
     def _add_increment(self, metric_type: str = None, X: Union[pd.DataFrame, np.array] = None,
                        inc_value: Union[float, int] = None) -> np.array:
