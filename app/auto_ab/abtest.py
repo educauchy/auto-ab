@@ -558,6 +558,8 @@ class ABTest:
                                                                         metric=metric,
                                                                         n_buckets=n_buckets)
                         imitation_log[split_rate][inc] += test_result
+                    elif strategy == 'formula':
+                        pass
 
                     # do not need to proceed if already achieved desired level
                     if imitation_log[split_rate][inc] / curr_iter >= self.__beta:
