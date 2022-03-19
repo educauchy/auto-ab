@@ -475,10 +475,26 @@ class ABTest:
 
         return pvalue
 
-    def sample_size(self, std: float = None, effect_size: float = None) -> int:
-        alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
-        n_samples = round(2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2), 0) + 1
-        return n_samples
+    def sample_size(self, std: float = None, effect_size: float = None,
+                    group_shares: Tuple[float, float] = None) -> Tuple[int, int]:
+        """
+        Calculation of sample size for each test group
+        :param std: Standard deviation of a test metric
+        :param effect_size: Lift in metric
+        :param group_shares: Shares of A and B groups
+        :return: Number of observations needed in each group
+        """
+        control_share, treatment_share = group_shares
+        if treatment_share == 0.5:
+            alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
+            n_samples = round(2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2), 0) + 1
+            return (n_samples, n_samples)
+        else:
+            alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
+            n = round((((t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2))) \
+                      / (treatment_share * control_share), 0) + 1
+            a_samples, b_samples = round(n * control_share, 0) + 1, round(n * treatment_share, 0) + 1
+        return (a_samples, b_samples)
 
     def mde(self, std: float = None, n_samples: int = None) -> float:
         alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
