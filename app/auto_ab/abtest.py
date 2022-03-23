@@ -486,19 +486,25 @@ class ABTest:
         """
         control_share, treatment_share = group_shares
         if treatment_share == 0.5:
-            alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
-            n_samples = round(2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2), 0) + 1
+            alpha: float = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
+            n_samples: int = round(2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2), 0) + 1
             return (n_samples, n_samples)
         else:
-            alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
-            n = round((((t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2))) \
+            alpha: float = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
+            n: int = round((((t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2))) \
                       / (treatment_share * control_share), 0) + 1
             a_samples, b_samples = round(n * control_share, 0) + 1, round(n * treatment_share, 0) + 1
         return (a_samples, b_samples)
 
     def mde(self, std: float = None, n_samples: int = None) -> float:
-        alpha = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
-        mde = np.sqrt( 2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std / n_samples )
+        """
+        Calculate Minimum Detectable Effect using Margin of Error formula
+        :param std: Pooled standard deviatioin
+        :param n_samples: Number of samples for each group
+        :return: MDE, in absolute lift
+        """
+        alpha: float = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
+        mde: float = np.sqrt( 2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std / n_samples )
         return mde
 
     def mde_simulation(self, n_iter: int = 20000, strategy: str = 'simple_test', strata: Optional[str] = '',
