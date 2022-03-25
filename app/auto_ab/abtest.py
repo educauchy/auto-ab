@@ -84,6 +84,11 @@ class ABTest:
     def __str__(self):
         return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
 
+    def config(self, config: Dict[Any]) -> None:
+        self.alpha = config['hypothesis']['alpha']
+        self.beta = config['hypothesis']['beta']
+        self.alternative = config['hypothesis']['alternative']
+
     def _add_increment(self, metric_type: str = None, X: Union[pd.DataFrame, np.array] = None,
                        inc_value: Union[float, int] = None) -> np.array:
         """
