@@ -6,6 +6,7 @@ from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
 from .splitter import Splitter
+from .graphics import Graphics
 from hyperopt import hp, fmin, tpe, Trials, space_eval
 
 
@@ -68,6 +69,17 @@ class ABTest:
             self.__alternative = value
         else:
             raise Exception("Alternative must be either 'less', 'greater', or 'two-sided'. Your input: '{}'.".format(value))
+
+    @property
+    def group_id(self) -> str:
+        return self.__group_id
+
+    @group_id.setter
+    def group_id(self, value: str) -> None:
+        if value in self.dataset.columns:
+            self.__group_id = value
+        else:
+            raise Exception('Group column name must be presented in dataset. Your input: {}.'.format(value))
 
     def __str__(self):
         return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
@@ -634,3 +646,9 @@ class ABTest:
         best_params = space_eval(space, best)
         print('\nBest params')
         print(best_params)
+
+    def plot(self) -> None:
+        gr = Graphics()
+        a = self.dataset.loc[self.dataset[self.__group_id] == 'A', self.target]
+        b = self.dataset.loc[self.dataset[self.__group_id] == 'B', self.target]
+        gr.plot_experiment(a, b, self.__alternative, 'mean', self.__alpha, self.__beta)
