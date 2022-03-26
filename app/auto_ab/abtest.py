@@ -5,8 +5,8 @@ from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
-from .splitter import Splitter
-from .graphics import Graphics
+from splitter import Splitter
+from graphics import Graphics
 from hyperopt import hp, fmin, tpe, Trials, space_eval
 
 
@@ -84,7 +84,7 @@ class ABTest:
     def __str__(self):
         return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
 
-    def config(self, config: Dict[Any]) -> None:
+    def config(self, config: Dict[Any, Any]) -> None:
         self.alpha = config['hypothesis']['alpha']
         self.beta = config['hypothesis']['beta']
         self.alternative = config['hypothesis']['alternative']
@@ -200,6 +200,7 @@ class ABTest:
         self.increment_extra = extra_params
 
     def use_dataset(self, X: pd.DataFrame, id_col: str = None, target: Optional[str] = None,
+                    group_id: str = None,
                     numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
         """
         Put dataset for analysis
@@ -211,6 +212,7 @@ class ABTest:
         """
         self.dataset = X
         self.id = id_col
+        self.group_id = group_id
         self.target = target
         self.numerator = numerator
         self.denominator = denominator
@@ -657,3 +659,15 @@ class ABTest:
         a = self.dataset.loc[self.dataset[self.__group_id] == 'A', self.target]
         b = self.dataset.loc[self.dataset[self.__group_id] == 'B', self.target]
         gr.plot_experiment(a, b, self.__alternative, 'mean', self.__alpha, self.__beta)
+
+
+if __name__ == '__main__':
+    data = pd.DataFrame({
+        'id': range(1, 10_002),
+        'group_id': np.random.choice(a=['A', 'B'], size=10_001),
+        'cheque': np.random.beta(a=2, b=8, size=10_001)
+    })
+
+    ab = ABTest(alpha=0.01, beta=0.2, alternative='greater')
+    ab.use_dataset(data, id_col='id', target='cheque', group_id='group_id')
+    ab.plot()
