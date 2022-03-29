@@ -2,10 +2,11 @@ pandas
 numpy
 matplotlib
 seaborn
-scipy=1.6.0
+scipy==1.6.0
 statsmodels
 sklearn
 python-pptx
 flask
 tqdm
 pyyaml
+hyperopt

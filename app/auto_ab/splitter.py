@@ -40,7 +40,7 @@ class Splitter:
         return cluster_id
 
     def __kl_divergence(self, a_cluster_id: Union[np.array, List[int]] = None,
-                        b_cluster_id: Union[np.array, List[int]] = None, n_bins: int = 50) -> Tuple[float]:
+                        b_cluster_id: Union[np.array, List[int]] = None, n_bins: int = 50) -> Tuple[float, float]:
         """
         Kullback-Leibler divergence for two arrays of cluster ids for A/A test
         :param a_cluster_id: List of cluster ids for group A
@@ -58,7 +58,7 @@ class Splitter:
         ent_ab = entropy(a, b)
         ent_ba = entropy(b, a)
 
-        return [ent_ab, ent_ba]
+        return (ent_ab, ent_ba)
 
     def __model_classify(self, X: pd.DataFrame = None, target: np.array = None) -> float:
         """
