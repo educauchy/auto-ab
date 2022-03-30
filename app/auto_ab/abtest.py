@@ -13,11 +13,14 @@ from hyperopt import hp, fmin, tpe, Trials, space_eval
 class ABTest:
     """Perform AB-test"""
     def __init__(self, alpha: float = 0.05, beta: float = 0.20,
-                 alternative: str = 'two-sided', split_ratios: Tuple[float] = (0.5, 0.5)) -> None:
+                 alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5)) -> None:
         self.alpha = alpha                  # use self.__alpha everywhere in the class
         self.beta = beta                    # use self.__beta everywhere in the class
         self.alternative = alternative      # use self.__alternative everywhere in the class
+
         self.target: Optional[str] = None
+        self.numerator: Optional[str] = None
+        self.denominator: Optional[str] = None
         self.dataset: pd.DataFrame = None
         self.initial_dataset: pd.DataFrame = None    # for ratio metrics to keep old dataset
         self.splitter: Splitter = None
@@ -71,13 +74,13 @@ class ABTest:
             raise Exception("Alternative must be either 'less', 'greater', or 'two-sided'. Your input: '{}'.".format(value))
 
     @property
-    def group_id(self) -> str:
-        return self.__group_id
+    def group_col(self) -> str:
+        return self.__group_col
 
-    @group_id.setter
-    def group_id(self, value: str) -> None:
+    @group_col.setter
+    def group_col(self, value: str) -> None:
         if value in self.dataset.columns:
-            self.__group_id = value
+            self.__group_col = value
         else:
             raise Exception('Group column name must be presented in dataset. Your input: {}.'.format(value))
 
@@ -123,13 +126,11 @@ class ABTest:
         :param path: Path to file
         :returns: Pandas DataFrame
         """
-        df = None
         _, file_ext = os.path.splitext(path)
         if file_ext == '.csv':
-            df = pd.read_csv(path, encoding='utf8')
+            return pd.read_csv(path, encoding='utf8')
         elif file_ext == '.xls' or file_ext == '.xlsx':
-            df = pd.read_excel(path, encoding='utf8')
-        return df
+            return pd.read_excel(path, encoding='utf8')
 
     def _manual_ttest(self, A_mean: float, A_var: float, A_size: int, B_mean: float, B_var: float, B_size: int) -> int:
         t_stat_empirical = (A_mean - B_mean) / (A_var / A_size + B_var / B_size) ** (1/2)
@@ -152,7 +153,7 @@ class ABTest:
         return test_result
 
     def _linearize(self, numerator: str = '', denominator: str = ''):
-            X = self.dataset.loc[self.dataset['group'] == 'A']
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A']
             K = round(sum(X[numerator]) / sum(X[denominator]), 4)
             self.dataset.loc[:, f'{numerator}_{denominator}'] = self.dataset[numerator] - K * self.dataset[denominator]
             self.target = f'{numerator}_{denominator}'
@@ -180,7 +181,7 @@ class ABTest:
 
         return (mean, var)
 
-    def _taylor_params(self, df: pd.DataFrame, numerator: str, denominator: str = '') -> Tuple[float, float]:
+    def _taylor_params(self, df: pd.DataFrame, numerator: str = '', denominator: str = '') -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using Taylor expansion approximation
         :param df: Pandas DataFrame of particular group (A, B, etc)
@@ -200,7 +201,7 @@ class ABTest:
         self.increment_extra = extra_params
 
     def use_dataset(self, X: pd.DataFrame, id_col: str = None, target: Optional[str] = None,
-                    group_id: str = None,
+                    group_col: str = None,
                     numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
         """
         Put dataset for analysis
@@ -212,7 +213,7 @@ class ABTest:
         """
         self.dataset = X
         self.id = id_col
-        self.group_id = group_id
+        self.__group_col = group_col
         self.target = target
         self.numerator = numerator
         self.denominator = denominator
@@ -235,8 +236,8 @@ class ABTest:
 
     def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
         if X is None and Y is None:
-            X = self.dataset[self.dataset.group == 'A']
-            Y = self.dataset[self.dataset.group == 'B']
+            X = self.dataset[self.dataset[self.__group_col] == 'A']
+            Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
         a_metric_total = sum(X[self.numerator]) / sum(X[self.denominator])
         b_metric_total = sum(Y[self.numerator]) / sum(Y[self.denominator])
@@ -286,8 +287,8 @@ class ABTest:
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
         if X is None and Y is None:
-            X = self.dataset[self.dataset.group == 'A']
-            Y = self.dataset[self.dataset.group == 'B']
+            X = self.dataset[self.dataset[self.__group_col] == 'A']
+            Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
         A_mean, A_var = self._taylor_params(X, self.numerator, self.denominator)
         B_mean, B_var = self._taylor_params(Y, self.numerator, self.denominator)
@@ -304,8 +305,8 @@ class ABTest:
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
         if X is None and Y is None:
-            X = self.dataset[self.dataset.group == 'A']
-            Y = self.dataset[self.dataset.group == 'B']
+            X = self.dataset[self.dataset[self.__group_col] == 'A']
+            Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
         A_mean, A_var = self._delta_params(X, self.numerator, self.denominator)
         B_mean, B_var = self._delta_params(Y, self.numerator, self.denominator)
@@ -389,8 +390,8 @@ class ABTest:
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         metric_diffs: List[float] = []
-        X = self.dataset.loc[self.dataset['group'] == 'A']
-        Y = self.dataset.loc[self.dataset['group'] == 'B']
+        X = self.dataset.loc[self.dataset[self.__group_col] == 'A']
+        Y = self.dataset.loc[self.dataset[self.__group_col] == 'B']
         for _ in tqdm(range(self.n_boot_samples)):
             x_strata_metric = 0
             y_strata_metric = 0
@@ -561,12 +562,12 @@ class ABTest:
                         print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
                     self._split_data(split_rate)
                     if metric_type == 'solid':
-                        control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
-                                             self.dataset.loc[self.dataset['group'] == 'B', self.target].to_numpy()
+                        control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy(), \
+                                             self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
                         treatment = self._add_increment('solid', treatment, inc)
                     elif metric_type == 'ratio':
-                        control, treatment = self.dataset.loc[self.dataset['group'] == 'A', [self.numerator, self.denominator]], \
-                                             self.dataset.loc[self.dataset['group'] == 'B', [self.numerator, self.denominator]]
+                        control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', [self.numerator, self.denominator]], \
+                                             self.dataset.loc[self.dataset[self.__group_col] == 'B', [self.numerator, self.denominator]]
                         treatment = self._add_increment('ratio', treatment, inc)
 
                     if strategy == 'simple_test':
@@ -623,8 +624,8 @@ class ABTest:
         def objective(params) -> float:
             split_rate, inc = params['split_rate'], params['inc']
             self._split_data(split_rate)
-            control, treatment = self.dataset.loc[self.dataset['group'] == 'A', self.target].to_numpy(), \
-                                 self.dataset.loc[self.dataset['group'] == 'B', self.target].to_numpy()
+            control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy(), \
+                                 self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
             treatment = self._add_increment('solid', treatment, inc)
             pvalue_mean = 0
             for it in range(n_iter):
@@ -656,18 +657,18 @@ class ABTest:
 
     def plot(self) -> None:
         gr = Graphics()
-        a = self.dataset.loc[self.dataset[self.__group_id] == 'A', self.target]
-        b = self.dataset.loc[self.dataset[self.__group_id] == 'B', self.target]
+        a = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target]
+        b = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target]
         gr.plot_experiment(a, b, self.__alternative, 'mean', self.__alpha, self.__beta)
 
 
 if __name__ == '__main__':
     data = pd.DataFrame({
         'id': range(1, 10_002),
-        'group_id': np.random.choice(a=['A', 'B'], size=10_001),
+        'group_col': np.random.choice(a=['A', 'B'], size=10_001),
         'cheque': np.random.beta(a=2, b=8, size=10_001)
     })
 
     ab = ABTest(alpha=0.01, beta=0.2, alternative='greater')
-    ab.use_dataset(data, id_col='id', target='cheque', group_id='group_id')
+    ab.use_dataset(data, id_col='id', target='cheque', group_col='group_col')
     ab.plot()
