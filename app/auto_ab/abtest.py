@@ -16,11 +16,17 @@ class ABTest:
     """Perform AB-test"""
     def __init__(self, alpha: float = 0.05, beta: float = 0.20,
                  alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5),
-                 metric_name: str = 'mean') -> None:
-        self.alpha = alpha                  # use self.__alpha everywhere in the class
-        self.beta = beta                    # use self.__beta everywhere in the class
-        self.alternative = alternative      # use self.__alternative everywhere in the class
-        self.metric_name = metric_name
+                 metric_type: str = 'solid', metric_name: str = 'mean',
+                 config: Dict[Any, Any] = None) -> None:
+        if config is None:
+            self.alpha = alpha                  # use self.__alpha everywhere in the class
+            self.beta = beta                    # use self.__beta everywhere in the class
+            self.alternative = alternative      # use self.__alternative everywhere in the class
+            self.metric_type = metric_type      # use self.__metric_type everywhere in the class
+            self.metric_name = metric_name      # use self.__metric_name everywhere in the class
+            self.split_ratios = split_ratios
+        else:
+            self.config(config)
 
         self.target: Optional[str] = None
         self.numerator: Optional[str] = None
@@ -28,10 +34,12 @@ class ABTest:
         self.dataset: pd.DataFrame = None
         self.initial_dataset: pd.DataFrame = None    # for ratio metrics to keep old dataset
         self.splitter: Splitter = None
-        self.split_ratios = split_ratios
         self.split_rates: List[float] = None
         self.increment_list: List[float] = None
         self.increment_extra: Dict[str, float] = None
+
+    def __str__(self):
+        return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
 
     @property
     def alpha(self) -> float:
@@ -56,15 +64,15 @@ class ABTest:
             raise Exception('Beta must be inside interval [0, 1]. Your input: {}.'.format(value))
 
     @property
-    def split_ratios(self) -> float:
-        return self.split_ratios
+    def split_ratios(self) -> Tuple[float, float]:
+        return self.__split_ratios
 
     @split_ratios.setter
-    def split_ratios(self, value: Tuple[float]) -> None:
+    def split_ratios(self, value: Tuple[float, float]) -> None:
         if isinstance(value, tuple) and len(value) == 2 and sum(value) == 1:
             self.__split_ratios = value
         else:
-            raise Exception('Split_ratios must be a tuple with two shares which has a sum of 1. Your input: {}.'.format(value))
+            raise Exception('Split ratios must be a tuple with two shares which has a sum of 1. Your input: {}.'.format(value))
 
     @property
     def alternative(self) -> str:
@@ -78,6 +86,28 @@ class ABTest:
             raise Exception("Alternative must be either 'less', 'greater', or 'two-sided'. Your input: '{}'.".format(value))
 
     @property
+    def metric_type(self) -> str:
+        return self.__metric_type
+
+    @metric_type.setter
+    def metric_type(self, value: str) -> None:
+        if value in ['solid', 'ratio']:
+            self.__metric_type = value
+        else:
+            raise Exception("Metric type must be either 'solid' or 'ratio'. Your input: '{}'.".format(value))
+
+    @property
+    def metric_name(self) -> str:
+        return self.__metric_name
+
+    @metric_name.setter
+    def metric_name(self, value: str) -> None:
+        if value in ['mean', 'median']:
+            self.__metric_name = value
+        else:
+            raise Exception("Metric name must be either 'mean' or 'median'. Your input: '{}'.".format(value))
+
+    @property
     def group_col(self) -> str:
         return self.__group_col
 
@@ -88,15 +118,15 @@ class ABTest:
         else:
             raise Exception('Group column name must be presented in dataset. Your input: {}.'.format(value))
 
-    def __str__(self):
-        return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
-
     def config(self, config: Dict[Any, Any]) -> None:
-        self.alpha = config['hypothesis']['alpha']
-        self.beta = config['hypothesis']['beta']
-        self.alternative = config['hypothesis']['alternative']
+        self.alpha          = config['hypothesis']['alpha']
+        self.beta           = config['hypothesis']['beta']
+        self.alternative    = config['hypothesis']['alternative']
+        self.metric_type    = config['metric']['metric_type']
+        self.metric_name    = config['metric']['metric_name']
+        self.split_ratios   = config['data']['split_ratios']
 
-    def _add_increment(self, metric_type: str = None, X: Union[pd.DataFrame, np.array] = None,
+    def _add_increment(self, X: Union[pd.DataFrame, np.array] = None,
                        inc_value: Union[float, int] = None) -> np.array:
         """
         Add constant increment to a list
@@ -104,9 +134,9 @@ class ABTest:
         :param inc_value: Constant addendum to each value
         :returns: Modified X array
         """
-        if metric_type == 'solid':
+        if self.__metric_type == 'solid':
             return X + inc_value
-        elif metric_type == 'ratio':
+        elif self.__metric_type == 'ratio':
             X.loc[:, 'inced'] = X[self.numerator] + inc_value
             X.loc[:, 'diff'] = X[self.denominator] - X[self.numerator]
             X.loc[:, 'rand_inc'] = np.random.randint(0, X['diff'] + 1, X.shape[0])
@@ -162,7 +192,7 @@ class ABTest:
             self.dataset.loc[:, f'{numerator}_{denominator}'] = self.dataset[numerator] - K * self.dataset[denominator]
             self.target = f'{numerator}_{denominator}'
 
-    def _delta_params(self, df: pd.DataFrame, numerator: str, denominator: str = '') -> Tuple[float, float]:
+    def _delta_params(self, df: pd.DataFrame, numerator: str, denominator: str = None) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using delta approximation
         :param df: Pandas DataFrame of particular group (A, B, etc)
@@ -185,7 +215,7 @@ class ABTest:
 
         return (mean, var)
 
-    def _taylor_params(self, df: pd.DataFrame, numerator: str = '', denominator: str = '') -> Tuple[float, float]:
+    def _taylor_params(self, df: pd.DataFrame) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using Taylor expansion approximation
         :param df: Pandas DataFrame of particular group (A, B, etc)
@@ -193,10 +223,10 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Tuple with mean and variance of ratio
         """
-        num = df[numerator]
-        den = df[denominator]
-        mean = num.mean() / den.mean() - df[[numerator, denominator]].cov()[0, 1] / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
-        var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - 2 * df[[numerator, denominator]].cov()[0, 1]) / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
+        num = df[self.__numerator]
+        den = df[self.__denominator]
+        mean = num.mean() / den.mean() - df[[self.__numerator, self.__denominator]].cov()[0, 1] / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
+        var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - 2 * df[[self.__numerator, self.___denominator]].cov()[0, 1]) / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
 
         return (mean, var)
 
@@ -216,13 +246,14 @@ class ABTest:
         :param denominator: Ratio denominator column name
         """
         self.dataset = X
-        self.id = id_col
-        self.__group_col = group_col
+        self.id_col = id_col
+        self.group_col = group_col
         self.target = target
         self.numerator = numerator
         self.denominator = denominator
 
     def load_dataset(self, path: str = '', id_col: str = None, target: Optional[str] = None,
+                     group_col: str = None,
                      numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
         """
         Load dataset for analysis
@@ -233,7 +264,8 @@ class ABTest:
         :param denominator: Ratio denominator column name
         """
         self.dataset = self._read_file(path)
-        self.id = id_col
+        self.id_col = id_col
+        self.group_col = group_col
         self.target = target
         self.numerator = numerator
         self.denominator = denominator
@@ -251,8 +283,8 @@ class ABTest:
         boot_b_metric = []
 
         for _ in tqdm(range(self.n_boot_samples)):
-            a_boot = X[X[self.id].isin(X[self.id].sample(X[self.id].nunique(), replace=True))]
-            b_boot = Y[Y[self.id].isin(Y[self.id].sample(Y[self.id].nunique(), replace=True))]
+            a_boot = X[X[self.id_col].isin(X[self.id_col].sample(X[self.id_col].nunique(), replace=True))]
+            b_boot = Y[Y[self.id_col].isin(Y[self.id_col].sample(Y[self.id_col].nunique(), replace=True))]
             a_boot_metric = sum(a_boot[self.numerator]) / sum(a_boot[self.denominator])
             b_boot_metric = sum(b_boot[self.numerator]) / sum(b_boot[self.denominator])
             boot_a_metric.append(a_boot_metric)
@@ -294,8 +326,8 @@ class ABTest:
             X = self.dataset[self.dataset[self.__group_col] == 'A']
             Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
-        A_mean, A_var = self._taylor_params(X, self.numerator, self.denominator)
-        B_mean, B_var = self._taylor_params(Y, self.numerator, self.denominator)
+        A_mean, A_var = self._taylor_params(X, self.__numerator, self.__denominator)
+        B_mean, B_var = self._taylor_params(Y, self.__numerator, self.__denominator)
         test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
@@ -377,6 +409,10 @@ class ABTest:
         :param n_buckets: Number of buckets
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
+        if X is None or Y is None:
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+
         np.random.shuffle(X)
         np.random.shuffle(Y)
         X_new = np.array([ metric(x) for x in np.array_split(X, n_buckets) ])
@@ -438,6 +474,10 @@ class ABTest:
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Type I error rate
         """
+        if X is None or Y is None:
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+
         metric_diffs: List[float] = []
         for _ in tqdm(range(self.n_boot_samples)):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
@@ -469,6 +509,10 @@ class ABTest:
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
+        if X is None or Y is None:
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+
         metric_diffs: List[float] = []
         for _ in tqdm(range(self.n_boot_samples)):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
@@ -494,6 +538,10 @@ class ABTest:
         :param Y: Alternative hypothesis distribution
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
+        if X is None or Y is None:
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+
         T: int = 0
         for _ in range(self.n_boot_samples):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
@@ -511,7 +559,7 @@ class ABTest:
         return pvalue
 
     def sample_size(self, std: float = None, effect_size: float = None,
-                    group_shares: Tuple[float, float] = None) -> Tuple[int, int]:
+                    split_ratios: Tuple[float, float] = None) -> Tuple[int, int]:
         """
         Calculation of sample size for each test group
         :param std: Standard deviation of a test metric
@@ -519,7 +567,7 @@ class ABTest:
         :param group_shares: Shares of A and B groups
         :return: Number of observations needed in each group
         """
-        control_share, treatment_share = group_shares
+        control_share, treatment_share = split_ratios if split_ratios is not None else self.__split_ratios
         if treatment_share == 0.5:
             alpha: float = (1 - self.__alpha / 2) if self.__alternative == 'two-sided' else (1 - self.__alpha)
             n_samples: int = round(2 * (t.ppf(alpha) + t.ppf(1 - self.__beta)) * std ** 2 / (effect_size ** 2), 0) + 1
@@ -576,11 +624,11 @@ class ABTest:
                     if verbose:
                         print(f'Split_rate: {split_rate}, inc_rate: {inc}, iter: {it}')
                     self._split_data(split_rate)
-                    if metric_type == 'solid':
+                    if self.__metric_type == 'solid':
                         control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy(), \
                                              self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
                         treatment = self._add_increment('solid', treatment, inc)
-                    elif metric_type == 'ratio':
+                    elif self.__metric_type == 'ratio':
                         control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', [self.numerator, self.denominator]], \
                                              self.dataset.loc[self.dataset[self.__group_col] == 'B', [self.numerator, self.denominator]]
                         treatment = self._add_increment('ratio', treatment, inc)
@@ -672,18 +720,18 @@ class ABTest:
 
     def plot(self) -> None:
         gr = Graphics()
-        a = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target]
-        b = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target]
-        gr.plot_experiment(a, b, self.__alternative, 'mean', self.__alpha, self.__beta)
+        a = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
+        b = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+        gr.plot_experiment(a, b, self.__alternative, self.__metric_name, self.__alpha, self.__beta)
 
 
 if __name__ == '__main__':
     data = pd.DataFrame({
         'id': range(1, 10_002),
-        'group_col': np.random.choice(a=['A', 'B'], size=10_001),
+        'group': np.random.choice(a=['A', 'B'], size=10_001),
         'cheque': np.random.beta(a=2, b=8, size=10_001)
     })
 
     ab = ABTest(alpha=0.01, beta=0.2, alternative='greater')
-    ab.use_dataset(data, id_col='id', target='cheque', group_col='group_col')
+    ab.use_dataset(data, id_col='id', target='cheque', group_col='group')
     ab.plot()
