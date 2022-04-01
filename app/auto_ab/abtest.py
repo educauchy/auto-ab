@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 import math, os
@@ -5,18 +7,20 @@ from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
-from splitter import Splitter
-from graphics import Graphics
+from .splitter import Splitter
+from .graphics import Graphics
 from hyperopt import hp, fmin, tpe, Trials, space_eval
 
 
 class ABTest:
     """Perform AB-test"""
     def __init__(self, alpha: float = 0.05, beta: float = 0.20,
-                 alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5)) -> None:
+                 alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5),
+                 metric_name: str = 'mean') -> None:
         self.alpha = alpha                  # use self.__alpha everywhere in the class
         self.beta = beta                    # use self.__beta everywhere in the class
         self.alternative = alternative      # use self.__alternative everywhere in the class
+        self.metric_name = metric_name
 
         self.target: Optional[str] = None
         self.numerator: Optional[str] = None
@@ -67,7 +71,7 @@ class ABTest:
         return self.__alternative
 
     @alternative.setter
-    def alternative(self, value: float) -> None:
+    def alternative(self, value: str) -> None:
         if value in ['less', 'greater', 'two-sided']:
             self.__alternative = value
         else:
@@ -334,22 +338,33 @@ class ABTest:
             self.dataset = df_grouped
         self._linearize(self.numerator, self.denominator)
 
-    def test_hypothesis(self, X: np.array, Y: np.array) -> int:
+    def test_hypothesis(self, X: np.array = None, Y: np.array = None) -> Tuple[int, float, float]:
         """
         Perform Welch's t-test / Mann-Whitney test for means/medians
         :param X: Group A
         :param Y: Group B
-        :return: Test result: 0 - cannot reject H0, 1 - reject H0
+        :return: Tuple: (test result: 0 - cannot reject H0, 1 - reject H0,
+                        statistics,
+                        p-value)
         """
+        if X is None or Y is None:
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+
         test_result: int = 0
-        if shapiro(X)[1] >= self.__alpha and shapiro(X)[1] >= self.__alpha:
-            _, pvalue = ttest_ind(X, Y, equal_var=False, alternative=self.__alternative)
-        else:
-            _, pvalue = mannwhitneyu(X, Y, alternative=self.__alternative)
+        pvalue: float = self.__alpha + 0.01
+        stat: float = 0
+        if self.metric_name == 'mean':
+            normality_passed = shapiro(X)[1] >= self.__alpha and shapiro(Y)[1] >= self.__alpha
+            if not normality_passed:
+                warnings.warn('One or both distributions are not normally distributed')
+            stat, pvalue = ttest_ind(X, Y, equal_var=False, alternative=self.__alternative)
+        elif self.metric_name == 'median':
+            stat, pvalue = mannwhitneyu(X, Y, alternative=self.__alternative)
         if pvalue <= self.__alpha:
             test_result = 1
 
-        return test_result
+        return (test_result, stat, pvalue)
 
     def test_hypothesis_buckets(self, X: np.array, Y: np.array,
                                 metric: Optional[Callable[[Any], float]] = None,
