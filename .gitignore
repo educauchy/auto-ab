@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Custom
+examples/storage/
+app/auto_ab/storage/
+app/web/static/
+env_auto_ab/
+app/web/postgres-data/
+setup.py
+config.yaml
