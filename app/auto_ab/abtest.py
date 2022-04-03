@@ -12,11 +12,14 @@ from .graphics import Graphics
 from hyperopt import hp, fmin, tpe, Trials, space_eval
 
 
+metric_name_typing = Union[str, Callable[[np.array], Union[int, float]]]
+
 class ABTest:
     """Perform AB-test"""
     def __init__(self, alpha: float = 0.05, beta: float = 0.20,
                  alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5),
-                 metric_type: str = 'solid', metric_name: str = 'mean',
+                 metric_type: str = 'solid',
+                 metric_name: metric_name_typing = 'mean',
                  config: Dict[Any, Any] = None) -> None:
         if config is None:
             self.alpha = alpha                  # use self.__alpha everywhere in the class
@@ -97,12 +100,12 @@ class ABTest:
             raise Exception("Metric type must be either 'solid' or 'ratio'. Your input: '{}'.".format(value))
 
     @property
-    def metric_name(self) -> str:
+    def metric_name(self) -> metric_name_typing:
         return self.__metric_name
 
     @metric_name.setter
-    def metric_name(self, value: str) -> None:
-        if value in ['mean', 'median']:
+    def metric_name(self, value: metric_name_typing) -> None:
+        if value in ['mean', 'median'] or callable(value):
             self.__metric_name = value
         else:
             raise Exception("Metric name must be either 'mean' or 'median'. Your input: '{}'.".format(value))
