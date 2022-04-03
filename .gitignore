@@ -129,10 +129,12 @@ dmypy.json
 .pyre/
 
 # Custom
-examples/storage/
-app/auto_ab/storage/
-app/web/static/
 env_auto_ab/
+examples/storage/
+app/storage
+app/auto_ab/storage/
 app/web/postgres-data/
+app/web/static/
+app/web
 setup.py
 config.yaml
