@@ -44,7 +44,7 @@ class Graphics:
         plt.close()
 
     @staticmethod
-    def plot_experiment(a: Union[np.array, List[Union[int, float]]] = None,
+    def plot_mean_experiment(a: Union[np.array, List[Union[int, float]]] = None,
                             b: Union[np.array, List[Union[int, float]]] = None,
                             alternative: str = 'two-sided',
                             metric: str = 'mean', alpha: float = 0.05, beta: float = 0.2) -> None:
@@ -63,8 +63,30 @@ class Graphics:
         ax.legend()
         plt.show()
 
+    @staticmethod
+    def plot_bootstrap_confint(X: Union[np.array, List[Union[int, float]]] = None,
+                               alternative: str = 'two-sided',
+                               alpha: float = 0.05, beta: float = 0.2
+                               ) -> None:
+        bins = 50
+        threshold = np.quantile(X, 0.025)
+        fig, ax = plt.subplots(figsize=(20, 12))
+        ax.hist(X, bins, alpha=0.5, label='Differences in metric', color='Red')
+        ax.axvline(x=0, color='Red', label='No difference')
+        ax.axvline(x=threshold, color='Blue', label='critical value')
+        ax.legend()
+        plt.show()
+        pass
+
 if __name__ == '__main__':
-    a = np.random.normal(0, 8, 5_000)
-    b = np.random.normal(25, 6, 5_000)
+    a = np.random.normal(0, 4, 5_000)
+    b = np.random.normal(0, 6, 5_000)
     gr = Graphics()
-    gr.plot_experiment(a, b)
+    # gr.plot_mean_experiment(a, b)
+
+    metric_diffs: List[float] = []
+    for _ in range(5000):
+        x_boot = np.random.choice(a, size=a.shape[0], replace=True)
+        y_boot = np.random.choice(b, size=b.shape[0], replace=True)
+        metric_diffs.append(np.mean(y_boot) - np.mean(x_boot))
+    gr.plot_bootstrap_confint(metric_diffs)
