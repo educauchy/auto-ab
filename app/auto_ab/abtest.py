@@ -273,7 +273,8 @@ class ABTest:
         self.numerator = numerator
         self.denominator = denominator
 
-    def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
+    def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None,
+                        n_boot_samples: int = 5000) -> int:
         if X is None and Y is None:
             X = self.dataset[self.dataset[self.__group_col] == 'A']
             Y = self.dataset[self.dataset[self.__group_col] == 'B']
@@ -285,7 +286,7 @@ class ABTest:
         boot_a_metric = []
         boot_b_metric = []
 
-        for _ in tqdm(range(self.n_boot_samples)):
+        for _ in tqdm(range(n_boot_samples)):
             a_boot = X[X[self.id_col].isin(X[self.id_col].sample(X[self.id_col].nunique(), replace=True))]
             b_boot = Y[Y[self.id_col].isin(Y[self.id_col].sample(Y[self.id_col].nunique(), replace=True))]
             a_boot_metric = sum(a_boot[self.numerator]) / sum(a_boot[self.denominator])
@@ -435,7 +436,7 @@ class ABTest:
         return test_result
 
     def test_hypothesis_strat_confint(self, metric: Optional[Callable[[Any], float]] = None,
-                            strata_col: str = '',
+                            strata_col: str = '', n_boot_samples: int = 5000,
                             weights: Dict[str, float] = None) -> int:
         """
         Perform stratification with confidence interval
@@ -446,7 +447,7 @@ class ABTest:
         metric_diffs: List[float] = []
         X = self.dataset.loc[self.dataset[self.__group_col] == 'A']
         Y = self.dataset.loc[self.dataset[self.__group_col] == 'B']
-        for _ in tqdm(range(self.n_boot_samples)):
+        for _ in tqdm(range(n_boot_samples)):
             x_strata_metric = 0
             y_strata_metric = 0
             for strat in weights.keys():
@@ -469,6 +470,7 @@ class ABTest:
         return test_result
 
     def test_hypothesis_boot_est(self, X: np.array, Y: np.array,
+                        n_boot_samples: int = 5000,
                         metric: Optional[Callable[[Any], float]] = None) -> float:
         """
         Perform bootstrap confidence interval with
@@ -482,7 +484,7 @@ class ABTest:
             Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
 
         metric_diffs: List[float] = []
-        for _ in tqdm(range(self.n_boot_samples)):
+        for _ in tqdm(range(n_boot_samples)):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
@@ -504,6 +506,7 @@ class ABTest:
         return false_positive
 
     def test_hypothesis_boot_confint(self, X: np.array, Y: np.array,
+                        n_boot_samples: int = 5000,
                         metric: Optional[Callable[[Any], float]] = None) -> int:
         """
         Perform bootstrap confidence interval
@@ -517,7 +520,7 @@ class ABTest:
             Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
 
         metric_diffs: List[float] = []
-        for _ in tqdm(range(self.n_boot_samples)):
+        for _ in tqdm(range(n_boot_samples)):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
@@ -534,7 +537,9 @@ class ABTest:
 
         return test_result
 
-    def test_boot_hypothesis(self, X: np.array, Y: np.array, use_correction: bool = False) -> float:
+    def test_boot_hypothesis(self, X: np.array, Y: np.array,
+                             n_boot_samples: int = 5000,
+                             use_correction: bool = False) -> float:
         """
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
@@ -546,18 +551,18 @@ class ABTest:
             Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
 
         T: int = 0
-        for _ in range(self.n_boot_samples):
+        for _ in range(n_boot_samples):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
 
             T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.shape[0] + np.var(y_boot) / y_boot.shape[0])
             test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.__alternative)
 
-            if (use_correction and (T_boot >= (test_res[1] / self.n_boot_samples))) or \
+            if (use_correction and (T_boot >= (test_res[1] / n_boot_samples))) or \
                     (not use_correction and (T_boot >= test_res[1])):
                 T += 1
 
-        pvalue = T / self.n_boot_samples
+        pvalue = T / n_boot_samples
 
         return pvalue
 
@@ -614,7 +619,6 @@ class ABTest:
         """
         if n_boot_samples < 1:
             raise Exception('Number of bootstrap samples must be 1 or more. Your input: {}.'.format(n_boot_samples))
-        self.n_boot_samples = n_boot_samples
         imitation_log: Dict[float, Dict[float, int]] = defaultdict(float)
         csv_pd = pd.DataFrame()
         for split_rate in self.split_rates:
