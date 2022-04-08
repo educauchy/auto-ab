@@ -111,6 +111,39 @@ class ABTest:
             raise Exception("Metric name must be either 'mean' or 'median'. Your input: '{}'.".format(value))
 
     @property
+    def target(self) -> str:
+        return self.__target
+
+    @target.setter
+    def target(self, value: str) -> None:
+        if value in self.dataset.columns:
+            self.__target = value
+        else:
+            raise Exception('Target column name must be presented in dataset. Your input: {}.'.format(value))
+
+    @property
+    def denominator(self) -> str:
+        return self.__denominator
+
+    @denominator.setter
+    def denominator(self, value: str) -> None:
+        if value in self.dataset.columns:
+            self.__denominator = value
+        else:
+            raise Exception('Denominator column name must be presented in dataset. Your input: {}.'.format(value))
+
+    @property
+    def numerator(self) -> str:
+        return self.__numerator
+
+    @numerator.setter
+    def numerator(self, value: str) -> None:
+        if value in self.dataset.columns:
+            self.__numerator = value
+        else:
+            raise Exception('Numerator column name must be presented in dataset. Your input: {}.'.format(value))
+
+    @property
     def group_col(self) -> str:
         return self.__group_col
 
@@ -140,13 +173,13 @@ class ABTest:
         if self.__metric_type == 'solid':
             return X + inc_value
         elif self.__metric_type == 'ratio':
-            X.loc[:, 'inced'] = X[self.numerator] + inc_value
-            X.loc[:, 'diff'] = X[self.denominator] - X[self.numerator]
+            X.loc[:, 'inced'] = X[self.__numerator] + inc_value
+            X.loc[:, 'diff'] = X[self.__denominator] - X[self.__numerator]
             X.loc[:, 'rand_inc'] = np.random.randint(0, X['diff'] + 1, X.shape[0])
-            X.loc[:, 'numerator_new'] = X[self.numerator] + X['rand_inc']
+            X.loc[:, 'numerator_new'] = X[self.__numerator] + X['rand_inc']
 
-            X[self.numerator] = np.where(X['inced'] < X[self.denominator], X['inced'], X['numerator_new'])
-            return X[[self.numerator, self.denominator]]
+            X[self.__numerator] = np.where(X['inced'] < X[self.__denominator], X['inced'], X['numerator_new'])
+            return X[[self.__numerator, self.__denominator]]
 
     def _split_data(self, split_rate: float) -> None:
         """
@@ -155,7 +188,7 @@ class ABTest:
         :return: None
         """
         split_rate: float = self.split_rate if split_rate is None else split_rate
-        self.dataset = self.splitter.fit(self.dataset, self.target, self.numerator, self.denominator, split_rate)
+        self.dataset = self.splitter.fit(self.dataset, self.__target, self.__numerator, self.__denominator, split_rate)
 
     def _read_file(self, path: str) -> pd.DataFrame:
         """
@@ -279,8 +312,8 @@ class ABTest:
             X = self.dataset[self.dataset[self.__group_col] == 'A']
             Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
-        a_metric_total = sum(X[self.numerator]) / sum(X[self.denominator])
-        b_metric_total = sum(Y[self.numerator]) / sum(Y[self.denominator])
+        a_metric_total = sum(X[self.__numerator]) / sum(X[self.__denominator])
+        b_metric_total = sum(Y[self.__numerator]) / sum(Y[self.__denominator])
         origin_mean = b_metric_total - a_metric_total
         boot_diffs = []
         boot_a_metric = []
@@ -289,8 +322,8 @@ class ABTest:
         for _ in tqdm(range(n_boot_samples)):
             a_boot = X[X[self.id_col].isin(X[self.id_col].sample(X[self.id_col].nunique(), replace=True))]
             b_boot = Y[Y[self.id_col].isin(Y[self.id_col].sample(Y[self.id_col].nunique(), replace=True))]
-            a_boot_metric = sum(a_boot[self.numerator]) / sum(a_boot[self.denominator])
-            b_boot_metric = sum(b_boot[self.numerator]) / sum(b_boot[self.denominator])
+            a_boot_metric = sum(a_boot[self.__numerator]) / sum(a_boot[self.__denominator])
+            b_boot_metric = sum(b_boot[self.__numerator]) / sum(b_boot[self.__denominator])
             boot_a_metric.append(a_boot_metric)
             boot_b_metric.append(b_boot_metric)
             boot_diffs.append(b_boot_metric - a_boot_metric)
@@ -348,8 +381,8 @@ class ABTest:
             X = self.dataset[self.dataset[self.__group_col] == 'A']
             Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
-        A_mean, A_var = self._delta_params(X, self.numerator, self.denominator)
-        B_mean, B_var = self._delta_params(Y, self.numerator, self.denominator)
+        A_mean, A_var = self._delta_params(X, self.__numerator, self.__denominator)
+        B_mean, B_var = self._delta_params(Y, self.__numerator, self.__denominator)
         test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
@@ -365,14 +398,14 @@ class ABTest:
         :return: None
         """
         if not is_grouped:
-            not_ratio_columns = self.dataset.columns[~self.dataset.columns.isin([self.numerator, self.denominator])].tolist()
+            not_ratio_columns = self.dataset.columns[~self.dataset.columns.isin([self.__numerator, self.__denominator])].tolist()
             df_grouped = self.dataset.groupby(by=not_ratio_columns, as_index=False).agg({
-                self.numerator: 'sum',
-                self.denominator: 'sum'
+                self.__numerator: 'sum',
+                self.__denominator: 'sum'
             })
             self.initial_dataset = self.dataset.copy(deep=True)
             self.dataset = df_grouped
-        self._linearize(self.numerator, self.denominator)
+        self._linearize(self.__numerator, self.__denominator)
 
     def test_hypothesis(self, X: np.array = None, Y: np.array = None) -> Tuple[int, float, float]:
         """
@@ -384,8 +417,8 @@ class ABTest:
                         p-value)
         """
         if X is None or Y is None:
-            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
-            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
 
         test_result: int = 0
         pvalue: float = self.__alpha + 0.01
@@ -414,8 +447,8 @@ class ABTest:
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         if X is None or Y is None:
-            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
-            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
 
         np.random.shuffle(X)
         np.random.shuffle(Y)
@@ -431,7 +464,7 @@ class ABTest:
             def metric(X: np.array):
                 modes, _ = mode(X)
                 return sum(modes) / len(modes)
-            test_result = self.test_hypothesis_boot_confint(X_new, Y_new, metric)
+            test_result = self.test_hypothesis_boot_confint(X_new, Y_new, metric=metric)
 
         return test_result
 
@@ -451,8 +484,8 @@ class ABTest:
             x_strata_metric = 0
             y_strata_metric = 0
             for strat in weights.keys():
-                X_strata = X.loc[X[strata_col] == strat, self.target]
-                Y_strata = Y.loc[Y[strata_col] == strat, self.target]
+                X_strata = X.loc[X[strata_col] == strat, self.__target]
+                Y_strata = Y.loc[Y[strata_col] == strat, self.__target]
                 x_strata_metric += (metric(np.random.choice(X_strata, size=X_strata.shape[0] // 2, replace=False)) * weights[strat])
                 y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.shape[0] // 2, replace=False)) * weights[strat])
             metric_diffs.append(metric(x_strata_metric) - metric(y_strata_metric))
@@ -480,8 +513,8 @@ class ABTest:
         :returns: Type I error rate
         """
         if X is None or Y is None:
-            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
-            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
 
         metric_diffs: List[float] = []
         for _ in tqdm(range(n_boot_samples)):
@@ -516,8 +549,8 @@ class ABTest:
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         if X is None or Y is None:
-            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
-            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
 
         metric_diffs: List[float] = []
         for _ in tqdm(range(n_boot_samples)):
@@ -533,7 +566,7 @@ class ABTest:
 
         test_result: int = 0 # 0 - cannot reject H0, 1 - reject H0
         if ci_left > 0 or ci_right < 0: # left border of ci > 0 or right border of ci < 0
-                test_result = 1
+            test_result = 1
 
         return test_result
 
@@ -547,8 +580,8 @@ class ABTest:
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         if X is None or Y is None:
-            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
-            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+            X = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
 
         T: int = 0
         for _ in range(n_boot_samples):
@@ -603,8 +636,8 @@ class ABTest:
         def objective(params) -> float:
             split_rate, inc = params['split_rate'], params['inc']
             self._split_data(split_rate)
-            control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy(), \
-                                 self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+            control, treatment = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy(), \
+                                 self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
             treatment = self._add_increment('solid', treatment, inc)
             pvalue_mean = 0
             for it in range(n_iter):
@@ -636,8 +669,8 @@ class ABTest:
 
     def plot(self) -> None:
         gr = Graphics()
-        a = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.target].to_numpy()
-        b = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.target].to_numpy()
+        a = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+        b = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
         gr.plot_experiment(a, b, self.__alternative, self.__metric_name, self.__alpha, self.__beta)
 
 
