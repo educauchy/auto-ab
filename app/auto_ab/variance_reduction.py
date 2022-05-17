@@ -5,8 +5,8 @@ import statsmodels.api as sm
 
 
 class VarianceReduction:
-    def __init__(self, method: str = None):
-        self.method = method
+    def __init__(self):
+        pass
 
     def _predict_target(self, X: pd.DataFrame, target_prev: str = '',
                        factors_prev: List[str] = None, factors_now: List[str] = None) -> pd.Series:
@@ -58,7 +58,6 @@ class VarianceReduction:
         if covariate is None:
             X_corr = X.select_dtypes(include=[np.number]).corr()
             covariate = X_corr.loc[X_corr.index != target, target].sort_values(ascending=False).index[0]
-        print('Covariate is column `{}`'.format(covariate))
 
         cov = X[[target, covariate]].cov().loc[target, covariate]
         var = X[covariate].var()
@@ -67,7 +66,7 @@ class VarianceReduction:
         for group in X[groups].unique():
             X_subdf = X[X[groups] == group]
             group_y_cuped = X_subdf[target] - self.theta * (X_subdf[covariate] - X_subdf[covariate].mean())
-            X.loc[X[groups] == group, '{}_cuped'.format(target)] = group_y_cuped
+            X.loc[X[groups] == group, target] = group_y_cuped
         return X
 
 if __name__ == '__main__':

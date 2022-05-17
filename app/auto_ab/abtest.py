@@ -7,8 +7,9 @@ from collections import Counter, defaultdict
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
-from .splitter import Splitter
-from .graphics import Graphics
+from splitter import Splitter
+from graphics import Graphics
+from variance_reduction import VarianceReduction
 from hyperopt import hp, fmin, tpe, Trials, space_eval
 
 
@@ -16,7 +17,8 @@ metric_name_typing = Union[str, Callable[[np.array], Union[int, float]]]
 
 class ABTest:
     """Perform AB-test"""
-    def __init__(self, alpha: float = 0.05, beta: float = 0.20,
+    def __init__(self,
+                 alpha: float = 0.05, beta: float = 0.20,
                  alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5),
                  metric_type: str = 'solid',
                  metric_name: metric_name_typing = 'mean',
@@ -673,6 +675,24 @@ class ABTest:
         b = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
         gr.plot_experiment(a, b, self.__alternative, self.__metric_name, self.__alpha, self.__beta)
 
+    def cuped(self):
+        vr = VarianceReduction()
+        self.dataset = vr.cuped(self.dataset,
+                                target=self.__target,
+                                groups=self.__group_col,
+                                covariate=self.__covariate)
+        return self
+
+    def cupac(self):
+        vr = VarianceReduction()
+        self.dataset = vr.cupac(self.dataset,
+                               target_prev=self.__target_prev,
+                               target_now=self.__target,
+                               factors_prev=self.__predictors_prev,
+                               factors_now=self.__predictors,
+                               groups=self.__group_col)
+        return self
+
 
 if __name__ == '__main__':
     data = pd.DataFrame({
@@ -681,6 +701,6 @@ if __name__ == '__main__':
         'cheque': np.random.beta(a=2, b=8, size=10_001)
     })
 
-    ab = ABTest(alpha=0.01, beta=0.2, alternative='greater')
+    ab = ABTest(alpha=0.05, beta=0.2, alternative='greater')
     ab.use_dataset(data, id_col='id', target='cheque', group_col='group')
     ab.plot()
