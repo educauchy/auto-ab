@@ -3,6 +3,8 @@ import warnings
 import numpy as np
 import pandas as pd
 import os
+import sys
+import yaml
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
@@ -16,17 +18,19 @@ metric_name_typing = Union[str, Callable[[np.array], Union[int, float]]]
 
 class ABTest:
     """Perform AB-test"""
-    def __init__(self, config: Dict[Any, Any] = None) -> None:
+    def __init__(self, config: Dict[Any, Any] = None,
+                 startup_config: bool = False) -> None:
         if config is not None:
-            self.config: Dict[Any, Any] = None
+            self.startup_config = startup_config
+            self.config: Dict[Any, Any] = {}
             self.config_load(config)
         else:
             raise Exception('You must pass config file')
 
     def __str__(self):
-        return f"ABTest(alpha={self.config.alpha}, " \
-               f"beta={self.config.beta}, " \
-               f"alternative='{self.config.alternative}')"
+        return f"ABTest(alpha={self.config['alpha']}, " \
+               f"beta={self.config['beta']}, " \
+               f"alternative='{self.config['alternative']}')"
 
     @property
     def alpha(self) -> float:
@@ -139,28 +143,65 @@ class ABTest:
             raise Exception('Group column name must be presented in dataset. Your input: {}.'.format(value))
 
     def config_load(self, config: Dict[Any, Any]) -> None:
-        self.config.alpha          = config['hypothesis']['alpha']
-        self.config.beta           = config['hypothesis']['beta']
-        self.config.alternative    = config['hypothesis']['alternative']
-        self.config.n_buckets      = config['hypothesis']['n_buckets']
-        self.config.metric_type    = config['metric']['metric_type']
-        self.config.metric_name    = config['metric']['metric_name']
-        self.config.split_ratios   = config['data']['split_ratios']
+        if self.startup_config:
+            self.config['alpha']          = config['hypothesis']['alpha']
+            self.config['beta']           = config['hypothesis']['beta']
+            self.config['alternative']    = config['hypothesis']['alternative']
+            self.config['n_buckets']      = config['hypothesis']['n_buckets']
+            self.config['split_ratios']   = config['hypothesis']['split_ratios']
+            self.config['metric_type']    = config['metric']['type']
+            self.config['metric_name']    = config['metric']['name']
 
-        if config['data']['path'] != '':
-            self.config.dataset: pd.DataFrame = self.load_dataset(config['data']['path'])
+            if config['data']['path'] != '':
+                df: pd.DataFrame = self.load_dataset(config['data']['path'])
+                n_rows = df.shape[0] + 1 if config['data']['n_rows'] == -1 else config['data']['n_rows']
+                df = df.iloc[:n_rows]
+                self.config['dataset'] = df.to_dict()
+                self.dataset = df
 
-        self.config.target         = config['data']['target']
-        self.config.numerator      = config['data']['numerator']
-        self.config.denominator    = config['data']['denominator']
-        self.config.group_col      = config['data']['group_col']
-        self.config.id_col         = config['data']['id_col']
-        self.config.is_grouped     = config['data']['is_grouped']
+            self.config['target']         = config['data']['target']
+            self.config['predictors']     = config['data']['predictors']
+            self.config['numerator']      = config['data']['numerator']
+            self.config['denominator']    = config['data']['denominator']
+            self.config['covariate']      = config['data']['covariate']
+            self.config['group_col']      = config['data']['group_col']
+            self.config['id_col']         = config['data']['id_col']
+            self.config['is_grouped']     = config['data']['is_grouped']
+            self.config['target_prev']    = config['data']['target_prev']
+            self.config['predictors_prev']     = config['data']['predictors_prev']
 
-        self.config.control        = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'A', \
-                                                             self.config.target].to_numpy()
-        self.config.treatment      = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'B', \
-                                                             self.config.target].to_numpy()
+            self.config['control']        = self.dataset.loc[self.dataset[self.config['group_col']] == 'A', \
+                                                                 self.config['target']].to_numpy()
+            self.config['treatment']      = self.dataset.loc[self.dataset[self.config['group_col']] == 'B', \
+                                                                 self.config['target']].to_numpy()
+
+        else:
+            self.config['alpha']          = config['alpha']
+            self.config['beta']           = config['beta']
+            self.config['alternative']    = config['alternative']
+            self.config['n_buckets']      = config['n_buckets']
+            self.config['split_ratios']   = config['split_ratios']
+            self.config['metric_type']    = config['metric_type']
+            self.config['metric_name']    = config['metric_name']
+            self.config['split_ratios']   = config['split_ratios']
+
+            if config['dataset'] != '':
+                self.dataset: pd.DataFrame = pd.DataFrame.from_dict(config['dataset'])
+                self.config['dataset'] = config['dataset']
+
+            self.config['target']         = config['target']
+            self.config['predictors']     = config['predictors']
+            self.config['numerator']      = config['numerator']
+            self.config['denominator']    = config['denominator']
+            self.config['covariate']      = config['covariate']
+            self.config['group_col']      = config['group_col']
+            self.config['id_col']         = config['id_col']
+            self.config['is_grouped']     = config['is_grouped']
+            self.config['target_prev']    = config['target_prev']
+            self.config['predictors_prev']     = config['predictors_prev']
+
+            self.config['control']        = config['control']
+            self.config['treatment']      = config['treatment']
 
         # self.splitter: Splitter = None
         # self.split_rates: List[float] = None
@@ -295,7 +336,7 @@ class ABTest:
         """
         self.config.dataset = X
 
-    def load_dataset(self, path: str = '') -> None:
+    def load_dataset(self, path: str = '') -> pd.DataFrame:
         """
         Load dataset for analysis
         :param path: Path to the dataset for analysis
@@ -304,7 +345,7 @@ class ABTest:
         :param numerator: Ratio numerator column name
         :param denominator: Ratio denominator column name
         """
-        self.config.dataset = self._read_file(path)
+        return self._read_file(path)
 
     def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
         if X is None and Y is None:
@@ -673,50 +714,64 @@ class ABTest:
 
     def cuped(self):
         vr = VarianceReduction()
-        self.config.dataset = vr.cuped(self.config.dataset,
-                                        target=self.config.target,
-                                        groups=self.config.group_col,
-                                        covariate=self.config.covariate)
-        return self
+        result_df = vr.cuped(self.dataset,
+                            target=self.config['target'],
+                            groups=self.config['group_col'],
+                            covariate=self.config['covariate'])
+
+        self.config['dataset'] = result_df.to_dict()
+        self.dataset = result_df
+
+        return ABTest(self.config)
 
     def cupac(self):
         vr = VarianceReduction()
-        self.config.dataset = vr.cupac(self.config.dataset,
-                                       target_prev=self.config.target_prev,
-                                       target_now=self.config.target,
-                                       factors_prev=self.config.predictors_prev,
-                                       factors_now=self.config.predictors,
-                                       groups=self.config.group_col)
-        return self
+        result_df = vr.cupac(self.dataset,
+                               target_prev=self.config['target_prev'],
+                               target_now=self.config['target'],
+                               factors_prev=self.config['predictors_prev'],
+                               factors_now=self.config['predictors'],
+                               groups=self.config['group_col'])
+
+        self.config['dataset'] = result_df.to_dict()
+        self.dataset = result_df
+
+        return ABTest(self.config)
 
     def __metric_calc(self, X: Union[List[Any], np.array]):
-        if self.config.metric_name == 'mean':
+        if self.config['metric_name'] == 'mean':
             return np.mean(X)
-        elif self.config.metric_name == 'median':
+        elif self.config['metric_name'] == 'median':
             return np.median(X)
-        elif self.config.metric_name == 'custom':
-            return self.config.metric(X)
+        elif self.config['metric_name'] == 'custom':
+            return self.config['metric'](X)
 
     def __bucketize(self, X: pd.DataFrame):
         np.random.shuffle(X)
-        X_new = np.array([ self.__metric_calc(x) for x in np.array_split(X, self.config.n_buckets) ])
+        print(np.array_split(X, self.config['n_buckets']))
+        X_new = np.array([ self.__metric_calc(x) for x in np.array_split(X, self.config['n_buckets']) ])
+        print(X_new)
         return X_new
 
     def bucketing(self):
-        # ABTest(config).bucketing().cuped()
-        self.config.control   = self.__bucketize(self.config.control)
-        self.config.treatment = self.__bucketize(self.config.treatment)
+        self.config['control']   = self.__bucketize(self.config['control'])
+        self.config['treatment'] = self.__bucketize(self.config['treatment'])
 
         return ABTest(self.config)
 
 
 if __name__ == '__main__':
-    data = pd.DataFrame({
-        'id': range(1, 10_002),
-        'group': np.random.choice(a=['A', 'B'], size=10_001),
-        'cheque': np.random.beta(a=2, b=8, size=10_001)
-    })
+    df = pd.read_csv('../../examples/storage/data/ab_data.csv')
 
-    ab = ABTest()
-    ab.use_dataset(data)
-    ab.plot()
+    with open("../../config.yaml", "r") as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+
+    ab_obj = ABTest(config, startup_config=True)
+    ab_obj = ab_obj.cupac().bucketing()
+    print(ab_obj.config)
+
+    # or with CUPED
+    # ab_obj = ab_obj.cuped().bucketing()

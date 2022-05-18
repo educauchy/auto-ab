@@ -44,20 +44,18 @@ class VarianceReduction:
         X_new = self.cuped(X, target_now, groups, 'target_pred')
         return X_new
 
-    def cuped(self, X: pd.DataFrame, target: str = '', groups: str = '',
+    def cuped(self, df: pd.DataFrame, target: str = '', groups: str = '',
               covariate: Optional[str] = None) -> pd.DataFrame:
         """
         Perform CUPED on target column with known/unknown covariate.
         Original paper: https://exp-platform.com/Documents/2013-02-CUPED-ImprovingSensitivityOfControlledExperiments.pdf.
-        :param X: Pandas DataFrame for analysis
+        :param df: Pandas DataFrame for analysis
         :param target: Target column name
         :param groups: Groups A and B column name
         :param covariate: Covariate column name. If None, then most correlated column in considered as covariate
         :return: Pandas DataFrame with additional target CUPEDed column
         """
-        if covariate is None:
-            X_corr = X.select_dtypes(include=[np.number]).corr()
-            covariate = X_corr.loc[X_corr.index != target, target].sort_values(ascending=False).index[0]
+        X = df.copy()
 
         cov = X[[target, covariate]].cov().loc[target, covariate]
         var = X[covariate].var()
@@ -67,30 +65,29 @@ class VarianceReduction:
             X_subdf = X[X[groups] == group]
             group_y_cuped = X_subdf[target] - self.theta * (X_subdf[covariate] - X_subdf[covariate].mean())
             X.loc[X[groups] == group, target] = group_y_cuped
+
         return X
 
 if __name__ == '__main__':
-    df = pd.read_csv('../data/internal/guide/ab_data.csv')
+    df = pd.read_csv('../../examples/storage/data/ab_data.csv')
 
     vr = VarianceReduction()
-    ans = vr.cupac(df, target_prev='height_prev', target_now='height_now',
-                   factors_prev=['weight_prev'],
-                   factors_now=['weight_now'], groups='groups')
-    # ans = vr.cuped(df, target='height_now', groups='groups', covariate='height_prev')
+    # ans = vr.cupac(df, target_prev='height_prev', target_now='height_now',
+    #                factors_prev=['weight_prev'],
+    #                factors_now=['weight_now'], groups='groups')
+    ans = vr.cuped(df, target='height_now', groups='groups', covariate='height_prev')
 
     target_var = 'height_now'
-    target_cuped = target_var + '_cuped'
+    target_cuped = 'height_now'
+
     print('\nMeans')
-    print(np.mean(ans[target_var]))
-    print(np.mean(ans.loc[ans.groups == 'A', target_var]))
-    print(np.mean(ans.loc[ans.groups == 'B', target_var]))
-    print(np.mean(ans[target_cuped]))
-    print(np.mean(ans.loc[ans.groups == 'A', target_cuped]))
-    print(np.mean(ans.loc[ans.groups == 'B', target_cuped]))
+    print(df.loc[df.groups == 'A', target_var].mean())
+    print(df.loc[df.groups == 'B', target_var].mean())
+    print(ans.loc[ans.groups == 'A', target_cuped].mean())
+    print(ans.loc[ans.groups == 'B', target_cuped].mean())
+
     print('\nVars')
-    print(np.var(ans[target_var]))
-    print(np.var(ans.loc[ans.groups == 'A', target_var]))
-    print(np.var(ans.loc[ans.groups == 'B', target_var]))
-    print(np.var(ans[target_cuped]))
-    print(np.var(ans.loc[ans.groups == 'A', target_cuped]))
-    print(np.var(ans.loc[ans.groups == 'B', target_cuped]))
+    print(df.loc[df.groups == 'A', target_var].var())
+    print(df.loc[df.groups == 'B', target_var].var())
+    print(ans.loc[ans.groups == 'A', target_cuped].var())
+    print(ans.loc[ans.groups == 'B', target_cuped].var())
