@@ -2,8 +2,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import math, os
-from collections import Counter, defaultdict
+import os
 from scipy.stats import mannwhitneyu, ttest_ind, shapiro, mode, t
 from typing import Dict, List, Any, Union, Optional, Callable, Tuple
 from tqdm.auto import tqdm
@@ -18,30 +17,11 @@ metric_name_typing = Union[str, Callable[[np.array], Union[int, float]]]
 class ABTest:
     """Perform AB-test"""
     def __init__(self,
-                 alpha: float = 0.05, beta: float = 0.20,
-                 alternative: str = 'two-sided', split_ratios: Tuple[float, float] = (0.5, 0.5),
-                 metric_type: str = 'solid',
-                 metric_name: metric_name_typing = 'mean',
                  config: Dict[Any, Any] = None) -> None:
-        if config is None:
-            self.alpha = alpha                  # use self.__alpha everywhere in the class
-            self.beta = beta                    # use self.__beta everywhere in the class
-            self.alternative = alternative      # use self.__alternative everywhere in the class
-            self.metric_type = metric_type      # use self.__metric_type everywhere in the class
-            self.metric_name = metric_name      # use self.__metric_name everywhere in the class
-            self.split_ratios = split_ratios
-        else:
+        if config is not None:
             self.config(config)
-
-        self.target: Optional[str] = None
-        self.numerator: Optional[str] = None
-        self.denominator: Optional[str] = None
-        self.dataset: pd.DataFrame = None
-        self.initial_dataset: pd.DataFrame = None    # for ratio metrics to keep old dataset
-        self.splitter: Splitter = None
-        self.split_rates: List[float] = None
-        self.increment_list: List[float] = None
-        self.increment_extra: Dict[str, float] = None
+        else:
+            raise Exception('You must pass config file')
 
     def __str__(self):
         return f"ABTest(alpha={self.__alpha}, beta={self.__beta}, alternative='{self.__alternative}')"
@@ -160,9 +140,27 @@ class ABTest:
         self.alpha          = config['hypothesis']['alpha']
         self.beta           = config['hypothesis']['beta']
         self.alternative    = config['hypothesis']['alternative']
+        self.n_buckets      = config['hypothesis']['n_buckets']
         self.metric_type    = config['metric']['metric_type']
         self.metric_name    = config['metric']['metric_name']
         self.split_ratios   = config['data']['split_ratios']
+
+        if config['data']['path'] != '':
+            self.dataset: pd.DataFrame = self.load_dataset(config['data']['path'])
+
+        self.target         = config['data']['target']
+        self.numerator      = config['data']['numerator']
+        self.denominator    = config['data']['denominator']
+        self.group_col      = config['data']['group_col']
+        self.id_col         = config['data']['id_col']
+        self.control        = self.dataset.loc[self.dataset[self.__group_col] == 'A', self.__target].to_numpy()
+        self.treatment      = self.dataset.loc[self.dataset[self.__group_col] == 'B', self.__target].to_numpy()
+
+        # self.initial_dataset: pd.DataFrame = None    # for ratio metrics to keep old dataset
+        # self.splitter: Splitter = None
+        # self.split_rates: List[float] = None
+        # self.increment_list: List[float] = None
+        # self.increment_extra: Dict[str, float] = None
 
     def _add_increment(self, X: Union[pd.DataFrame, np.array] = None,
                        inc_value: Union[float, int] = None) -> np.array:
@@ -224,13 +222,14 @@ class ABTest:
 
         return test_result
 
-    def _linearize(self, numerator: str = '', denominator: str = ''):
+    def _linearize(self):
             X = self.dataset.loc[self.dataset[self.__group_col] == 'A']
-            K = round(sum(X[numerator]) / sum(X[denominator]), 4)
-            self.dataset.loc[:, f'{numerator}_{denominator}'] = self.dataset[numerator] - K * self.dataset[denominator]
-            self.target = f'{numerator}_{denominator}'
+            K = round(sum(X[self.__numerator]) / sum(X[self.__denominator]), 4)
+            self.dataset.loc[:, f'{self.__numerator}_{self.__denominator}'] = \
+                        self.dataset[self.__numerator] - K * self.dataset[self.__denominator]
+            self.target = f'{self.__numerator}_{self.__denominator}'
 
-    def _delta_params(self, df: pd.DataFrame, numerator: str, denominator: str = None) -> Tuple[float, float]:
+    def _delta_params(self) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using delta approximation
         :param df: Pandas DataFrame of particular group (A, B, etc)
@@ -238,13 +237,13 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Tuple with mean and variance of ratio
         """
-        num = df[numerator]
-        den = df[denominator]
+        num = self.dataset[self.__numerator]
+        den = self.dataset[self.__denominator]
         num_mean = num.mean()
         num_var = num.var()
         den_mean = den.mean()
         den_var = den.var()
-        cov = df[[numerator, denominator]].cov().iloc[0, 1]
+        cov = self.dataset[[self.__numerator, self.__denominator]].cov().iloc[0, 1]
         n = len(num)
 
         bias_correction = (den_mean / num_mean ** 3) * (num_var / n) - cov / (n * num_mean ** 2)
@@ -253,7 +252,7 @@ class ABTest:
 
         return (mean, var)
 
-    def _taylor_params(self, df: pd.DataFrame) -> Tuple[float, float]:
+    def _taylor_params(self) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using Taylor expansion approximation
         :param df: Pandas DataFrame of particular group (A, B, etc)
@@ -261,10 +260,13 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Tuple with mean and variance of ratio
         """
-        num = df[self.__numerator]
-        den = df[self.__denominator]
-        mean = num.mean() / den.mean() - df[[self.__numerator, self.__denominator]].cov()[0, 1] / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
-        var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - 2 * df[[self.__numerator, self.___denominator]].cov()[0, 1]) / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
+        num = self.dataset[self.__numerator]
+        den = self.dataset[self.__denominator]
+        mean = num.mean() / den.mean() - self.dataset[[self.__numerator, self.__denominator]].cov()[0, 1] \
+               / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
+        var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - \
+                2 * self.dataset[[self.__numerator, self.___denominator]].cov()[0, 1]) \
+                / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
 
         return (mean, var)
 
@@ -272,9 +274,7 @@ class ABTest:
         self.increment_list = inc_var
         self.increment_extra = extra_params
 
-    def use_dataset(self, X: pd.DataFrame, id_col: str = None, target: Optional[str] = None,
-                    group_col: str = None,
-                    numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
+    def use_dataset(self, X: pd.DataFrame) -> None:
         """
         Put dataset for analysis
         :param X: Pandas DataFrame for analysis
@@ -284,15 +284,8 @@ class ABTest:
         :param denominator: Ratio denominator column name
         """
         self.dataset = X
-        self.id_col = id_col
-        self.group_col = group_col
-        self.target = target
-        self.numerator = numerator
-        self.denominator = denominator
 
-    def load_dataset(self, path: str = '', id_col: str = None, target: Optional[str] = None,
-                     group_col: str = None,
-                     numerator: Optional[str] = None, denominator: Optional[str] = None) -> None:
+    def load_dataset(self, path: str = '') -> None:
         """
         Load dataset for analysis
         :param path: Path to the dataset for analysis
@@ -302,11 +295,6 @@ class ABTest:
         :param denominator: Ratio denominator column name
         """
         self.dataset = self._read_file(path)
-        self.id_col = id_col
-        self.group_col = group_col
-        self.target = target
-        self.numerator = numerator
-        self.denominator = denominator
 
     def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None,
                         n_boot_samples: int = 5000) -> int:
@@ -352,7 +340,7 @@ class ABTest:
 
         return test_result
 
-    def ratio_taylor(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
+    def ratio_taylor(self) -> int:
         """
         Calculate expectation and variance of ratio for each group
         and then use t-test for hypothesis testing
@@ -361,9 +349,8 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
-        if X is None and Y is None:
-            X = self.dataset[self.dataset[self.__group_col] == 'A']
-            Y = self.dataset[self.dataset[self.__group_col] == 'B']
+        X = self.dataset[self.dataset[self.__group_col] == 'A']
+        Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
         A_mean, A_var = self._taylor_params(X, self.__numerator, self.__denominator)
         B_mean, B_var = self._taylor_params(Y, self.__numerator, self.__denominator)
@@ -371,7 +358,7 @@ class ABTest:
 
         return test_result
 
-    def delta_method(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
+    def delta_method(self) -> int:
         """
         Delta method with bias correction for ratios
         Source: https://arxiv.org/pdf/1803.06336.pdf
@@ -379,9 +366,8 @@ class ABTest:
         :param Y: Group B
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
-        if X is None and Y is None:
-            X = self.dataset[self.dataset[self.__group_col] == 'A']
-            Y = self.dataset[self.dataset[self.__group_col] == 'B']
+        X = self.dataset[self.dataset[self.__group_col] == 'A']
+        Y = self.dataset[self.dataset[self.__group_col] == 'B']
 
         A_mean, A_var = self._delta_params(X, self.__numerator, self.__denominator)
         B_mean, B_var = self._delta_params(Y, self.__numerator, self.__denominator)
@@ -693,6 +679,24 @@ class ABTest:
                                groups=self.__group_col)
         return self
 
+    def __metric_calc(self, X: Union[List[Any], np.array]):
+        if self.metric_name == 'mean':
+            return np.mean(X)
+        elif self.metric_name == 'median':
+            return np.median(X)
+        elif self.metric_name == 'custom':
+            return self.metric(X)
+
+    def __bucketize(self, X: pd.DataFrame):
+        np.random.shuffle(X)
+        X_new = np.array([ self.__metric_calc(x) for x in np.array_split(X, self.n_buckets) ])
+        return X_new
+
+    def bucketing(self):
+        self.__control = self.__bucketize(self.__control)
+        self.__treatment = self.__bucketize(self.__treatment)
+        return self
+
 
 if __name__ == '__main__':
     data = pd.DataFrame({
@@ -701,6 +705,6 @@ if __name__ == '__main__':
         'cheque': np.random.beta(a=2, b=8, size=10_001)
     })
 
-    ab = ABTest(alpha=0.05, beta=0.2, alternative='greater')
-    ab.use_dataset(data, id_col='id', target='cheque', group_col='group')
+    ab = ABTest()
+    ab.use_dataset(data)
     ab.plot()
