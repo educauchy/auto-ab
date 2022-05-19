@@ -34,111 +34,111 @@ class ABTest:
 
     @property
     def alpha(self) -> float:
-        return self.config.alpha
+        return self.config['alpha']
 
     @alpha.setter
     def alpha(self, value: float) -> None:
         if 0 <= value <= 1:
-            self.config.alpha = value
+            self.config['alpha'] = value
         else:
             raise Exception('Alpha must be inside interval [0, 1]. Your input: {}.'.format(value))
 
     @property
     def beta(self) -> float:
-        return self.config.beta
+        return self.config['beta']
 
     @beta.setter
     def beta(self, value: float) -> None:
         if 0 <= value <= 1:
-            self.config.beta = value
+            self.config['beta'] = value
         else:
             raise Exception('Beta must be inside interval [0, 1]. Your input: {}.'.format(value))
 
     @property
     def split_ratios(self) -> Tuple[float, float]:
-        return self.config.split_ratios
+        return self.config['split_ratios']
 
     @split_ratios.setter
     def split_ratios(self, value: Tuple[float, float]) -> None:
         if isinstance(value, tuple) and len(value) == 2 and sum(value) == 1:
-            self.config.split_ratios = value
+            self.config['split_ratios'] = value
         else:
             raise Exception('Split ratios must be a tuple with two shares which has a sum of 1. Your input: {}.'.format(value))
 
     @property
     def alternative(self) -> str:
-        return self.config.alternative
+        return self.config['alternative']
 
     @alternative.setter
     def alternative(self, value: str) -> None:
         if value in ['less', 'greater', 'two-sided']:
-            self.config.alternative = value
+            self.config['alternative'] = value
         else:
             raise Exception("Alternative must be either 'less', 'greater', or 'two-sided'. Your input: '{}'.".format(value))
 
     @property
     def metric_type(self) -> str:
-        return self.config.metric_type
+        return self.config['metric_type']
 
     @metric_type.setter
     def metric_type(self, value: str) -> None:
         if value in ['solid', 'ratio']:
-            self.config.metric_type = value
+            self.config['metric_type'] = value
         else:
             raise Exception("Metric type must be either 'solid' or 'ratio'. Your input: '{}'.".format(value))
 
     @property
     def metric_name(self) -> metric_name_typing:
-        return self.metric_name
+        return self.config['metric_name']
 
     @metric_name.setter
     def metric_name(self, value: metric_name_typing) -> None:
         if value in ['mean', 'median'] or callable(value):
-            self.config.metric_name = value
+            self.config['metric_name'] = value
         else:
             raise Exception("Metric name must be either 'mean' or 'median'. Your input: '{}'.".format(value))
 
     @property
     def target(self) -> str:
-        return self.config.target
+        return self.config['target']
 
     @target.setter
     def target(self, value: str) -> None:
-        if value in self.config.dataset.columns:
-            self.config.target = value
+        if value in self.dataset.columns:
+            self.config['target'] = value
         else:
             raise Exception('Target column name must be presented in dataset. Your input: {}.'.format(value))
 
     @property
     def denominator(self) -> str:
-        return self.config.denominator
+        return self.config['denominator']
 
     @denominator.setter
     def denominator(self, value: str) -> None:
-        if value in self.config.dataset.columns:
-            self.config.denominator = value
+        if value in self.dataset.columns:
+            self.config['denominator'] = value
         else:
             raise Exception('Denominator column name must be presented in dataset. Your input: {}.'.format(value))
 
     @property
     def numerator(self) -> str:
-        return self.config.numerator
+        return self.config['numerator']
 
     @numerator.setter
     def numerator(self, value: str) -> None:
-        if value in self.config.dataset.columns:
-            self.config.numerator = value
+        if value in self.dataset.columns:
+            self.config['numerator'] = value
         else:
             raise Exception('Numerator column name must be presented in dataset. Your input: {}.'.format(value))
 
     @property
     def group_col(self) -> str:
-        return self.config.group_col
+        return self.config['group_col']
 
     @group_col.setter
     def group_col(self, value: str) -> None:
-        if value in self.config.dataset.columns:
-            self.config.group_col = value
+        if value in self.dataset.columns:
+            self.config['group_col'] = value
         else:
             raise Exception('Group column name must be presented in dataset. Your input: {}.'.format(value))
 
@@ -148,6 +148,7 @@ class ABTest:
             self.config['beta']           = config['hypothesis']['beta']
             self.config['alternative']    = config['hypothesis']['alternative']
             self.config['n_buckets']      = config['hypothesis']['n_buckets']
+            self.config['n_boot_samples'] = config['hypothesis']['n_boot_samples']
             self.config['split_ratios']   = config['hypothesis']['split_ratios']
             self.config['metric_type']    = config['metric']['type']
             self.config['metric_name']    = config['metric']['name']
@@ -180,6 +181,7 @@ class ABTest:
             self.config['beta']           = config['beta']
             self.config['alternative']    = config['alternative']
             self.config['n_buckets']      = config['n_buckets']
+            self.config['n_boot_samples'] = config['n_boot_samples']
             self.config['split_ratios']   = config['split_ratios']
             self.config['metric_type']    = config['metric_type']
             self.config['metric_name']    = config['metric_name']
@@ -216,16 +218,16 @@ class ABTest:
         :param inc_value: Constant addendum to each value
         :returns: Modified X array
         """
-        if self.config.metric_type == 'solid':
+        if self.config['metric_type'] == 'solid':
             return X + inc_value
-        elif self.config.metric_type == 'ratio':
-            X.loc[:, 'inced'] = X[self.config.numerator] + inc_value
-            X.loc[:, 'diff'] = X[self.config.denominator] - X[self.config.numerator]
+        elif self.config['metric_type'] == 'ratio':
+            X.loc[:, 'inced'] = X[self.config['numerator']] + inc_value
+            X.loc[:, 'diff'] = X[self.config['denominator']] - X[self.config['numerator']]
             X.loc[:, 'rand_inc'] = np.random.randint(0, X['diff'] + 1, X.shape[0])
-            X.loc[:, 'numerator_new'] = X[self.config.numerator] + X['rand_inc']
+            X.loc[:, 'numerator_new'] = X[self.config['numerator']] + X['rand_inc']
 
-            X[self.config.numerator] = np.where(X['inced'] < X[self.config.denominator], X['inced'], X['numerator_new'])
-            return X[[self.config.numerator, self.config.denominator]]
+            X[self.config['numerator']] = np.where(X['inced'] < X[self.config['denominator']], X['inced'], X['numerator_new'])
+            return X[[self.config['numerator'], self.config['denominator']]]
 
     def _split_data(self, split_rate: float) -> None:
         """
@@ -233,11 +235,11 @@ class ABTest:
         :param split_rate: Split rate of control/treatment
         :return: None
         """
-        split_rate: float = self.config.split_rate if split_rate is None else split_rate
-        self.config.dataset = self.config.splitter.fit(self.config.dataset,
-                                                    self.config.target,
-                                                    self.config.numerator,
-                                                    self.config.denominator,
+        split_rate: float = self.config['split_rate'] if split_rate is None else split_rate
+        self.dataset = self.config['splitter'].fit(self.dataset,
+                                                    self.config['target'],
+                                                    self.config['numerator'],
+                                                    self.config['denominator'],
                                                     split_rate)
 
     def _read_file(self, path: str) -> pd.DataFrame:
@@ -257,28 +259,28 @@ class ABTest:
         df = A_size + B_size - 2
 
         test_result: int = 0
-        if self.config.alternative == 'two-sided':
-            lcv, rcv = t.ppf(self.config.alpha / 2, df), t.ppf(1.0 - self.config.alpha / 2, df)
+        if self.config['alternative'] == 'two-sided':
+            lcv, rcv = t.ppf(self.config['alpha'] / 2, df), t.ppf(1.0 - self.config['alpha'] / 2, df)
             if not (lcv < t_stat_empirical < rcv):
                 test_result = 1
-        elif self.config.alternative == 'left':
-            lcv = t.ppf(self.config.alpha, df)
+        elif self.config['alternative'] == 'left':
+            lcv = t.ppf(self.config['alpha'], df)
             if t_stat_empirical < lcv:
                 test_result = 1
-        elif self.config.alternative == 'right':
-            rcv = t.ppf(1 - self.config.alpha, df)
+        elif self.config['alternative'] == 'right':
+            rcv = t.ppf(1 - self.config['alpha'], df)
             if t_stat_empirical > rcv:
                 test_result = 1
 
         return test_result
 
     def _linearize(self):
-            X = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'A']
-            K = round(sum(X[self.config.numerator]) / sum(X[self.config.denominator]), 4)
+            X = self.dataset.loc[self.dataset[self.config['group_col']] == 'A']
+            K = round(sum(X[self.config['numerator']]) / sum(X[self.config['denominator']]), 4)
 
-            self.config.dataset.loc[:, f'{self.config.numerator}_{self.config.denominator}'] = \
-                        self.config.dataset[self.config.numerator] - K * self.config.dataset[self.config.denominator]
-            self.config.target = f'{self.config.numerator}_{self.config.denominator}'
+            self.dataset.loc[:, f"{self.config['numerator']}_{self.config['denominator']}"] = \
+                        self.dataset[self.config['numerator']] - K * self.dataset[self.config['denominator']]
+            self.target = f"{self.config['numerator']}_{self.config['denominator']}"
 
     def _delta_params(self) -> Tuple[float, float]:
         """
@@ -288,13 +290,13 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Tuple with mean and variance of ratio
         """
-        num = self.config.dataset[self.config.numerator]
-        den = self.config.dataset[self.config.denominator]
+        num = self.dataset[self.config['numerator']]
+        den = self.dataset[self.config['denominator']]
         num_mean = num.mean()
         num_var = num.var()
         den_mean = den.mean()
         den_var = den.var()
-        cov = self.config.dataset[[self.config.numerator, self.config.denominator]].cov().iloc[0, 1]
+        cov = self.dataset[[self.config['numerator'], self.config['denominator']]].cov().iloc[0, 1]
         n = len(num)
 
         bias_correction = (den_mean / num_mean ** 3) * (num_var / n) - cov / (n * num_mean ** 2)
@@ -311,19 +313,19 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Tuple with mean and variance of ratio
         """
-        num = self.config.dataset[self.config.numerator]
-        den = self.config.dataset[self.config.denominator]
-        mean = num.mean() / den.mean() - self.config.dataset[[self.config.numerator, self.config.denominator]].cov()[0, 1] \
+        num = self.dataset[self.config['numerator']]
+        den = self.dataset[self.config['denominator']]
+        mean = num.mean() / den.mean() - self.dataset[[self.config['numerator'], self.config['denominator']]].cov()[0, 1] \
                / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
         var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - \
-                2 * self.config.dataset[[self.config.numerator, self.config.denominator]].cov()[0, 1]) \
+                2 * self.dataset[[self.config['numerator'], self.config['denominator']]].cov()[0, 1]) \
                 / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
 
         return (mean, var)
 
     def set_increment(self, inc_var: List[float] = None, extra_params: Dict[str, float] = None) -> None:
-        self.config.increment_list = inc_var
-        self.config.increment_extra = extra_params
+        self.config['increment_list']  = inc_var
+        self.config['increment_extra'] = extra_params
 
     def use_dataset(self, X: pd.DataFrame) -> None:
         """
@@ -334,7 +336,8 @@ class ABTest:
         :param numerator: Ratio numerator column name
         :param denominator: Ratio denominator column name
         """
-        self.config.dataset = X
+        self.dataset = X
+        self.config['dataset'] = X.to_dict()
 
     def load_dataset(self, path: str = '') -> pd.DataFrame:
         """
@@ -349,21 +352,21 @@ class ABTest:
 
     def ratio_bootstrap(self, X: pd.DataFrame = None, Y: pd.DataFrame = None) -> int:
         if X is None and Y is None:
-            X = self.config.dataset[self.config.dataset[self.config.group_col] == 'A']
-            Y = self.config.dataset[self.config.dataset[self.config.group_col] == 'B']
+            X = self.dataset[self.dataset[self.config['group_col']] == 'A']
+            Y = self.dataset[self.dataset[self.config['group_col']] == 'B']
 
-        a_metric_total = sum(X[self.config.numerator]) / sum(X[self.config.denominator])
-        b_metric_total = sum(Y[self.config.numerator]) / sum(Y[self.config.denominator])
+        a_metric_total = sum(X[self.config['numerator']]) / sum(X[self.config['denominator']])
+        b_metric_total = sum(Y[self.config['numerator']]) / sum(Y[self.config['denominator']])
         origin_mean = b_metric_total - a_metric_total
         boot_diffs = []
         boot_a_metric = []
         boot_b_metric = []
 
-        for _ in tqdm(range(self.config.n_boot_samples)):
-            a_boot = X[X[self.config.id_col].isin(X[self.config.id_col].sample(X[self.config.id_col].nunique(), replace=True))]
-            b_boot = Y[Y[self.config.id_col].isin(Y[self.config.id_col].sample(Y[self.config.id_col].nunique(), replace=True))]
-            a_boot_metric = sum(a_boot[self.config.numerator]) / sum(a_boot[self.config.denominator])
-            b_boot_metric = sum(b_boot[self.config.numerator]) / sum(b_boot[self.config.denominator])
+        for _ in tqdm(range(self.config['n_boot_samples'])):
+            a_boot = X[X[self.config['id_col']].isin(X[self.config['id_col']].sample(X[self.config['id_col']].nunique(), replace=True))]
+            b_boot = Y[Y[self.config['id_col']].isin(Y[self.config['id_col']].sample(Y[self.config['id_col']].nunique(), replace=True))]
+            a_boot_metric = sum(a_boot[self.config['numerator']]) / sum(a_boot[self.config['denominator']])
+            b_boot_metric = sum(b_boot[self.config['numerator']]) / sum(b_boot[self.config['denominator']])
             boot_a_metric.append(a_boot_metric)
             boot_b_metric.append(b_boot_metric)
             boot_diffs.append(b_boot_metric - a_boot_metric)
@@ -379,8 +382,8 @@ class ABTest:
 
         pd_metric_diffs = pd.DataFrame(boot_diffs)
 
-        left_quant  = self.config.alpha / 2
-        right_quant = 1 - self.config.alpha / 2
+        left_quant  = self.config['alpha'] / 2
+        right_quant = 1 - self.config['alpha'] / 2
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
         ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
 
@@ -399,11 +402,11 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
-        X = self.config.dataset[self.config.dataset[self.config.group_col] == 'A']
-        Y = self.config.dataset[self.config.dataset[self.config.group_col] == 'B']
+        X = self.dataset[self.dataset[self.config['group_col']] == 'A']
+        Y = self.dataset[self.dataset[self.config['group_col']] == 'B']
 
-        A_mean, A_var = self._taylor_params(X, self.config.numerator, self.config.denominator)
-        B_mean, B_var = self._taylor_params(Y, self.config.numerator, self.config.denominator)
+        A_mean, A_var = self._taylor_params(X, self.config['numerator'], self.config['denominator'])
+        B_mean, B_var = self._taylor_params(Y, self.config['numerator'], self.config['denominator'])
         test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
@@ -416,11 +419,11 @@ class ABTest:
         :param Y: Group B
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
-        X = self.config.dataset[self.config.dataset[self.config.group_col] == 'A']
-        Y = self.config.dataset[self.config.dataset[self.config.group_col] == 'B']
+        X = self.dataset[self.dataset[self.config['group_col']] == 'A']
+        Y = self.dataset[self.dataset[self.config['group_col']] == 'B']
 
-        A_mean, A_var = self._delta_params(X, self.config.numerator, self.config.denominator)
-        B_mean, B_var = self._delta_params(Y, self.config.numerator, self.config.denominator)
+        A_mean, A_var = self._delta_params(X, self.config['numerator'], self.config['denominator'])
+        B_mean, B_var = self._delta_params(Y, self.config['numerator'], self.config['denominator'])
         test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
@@ -435,14 +438,14 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: None
         """
-        if not self.config.is_grouped:
-            not_ratio_columns = self.config.dataset.columns[~self.config.dataset.columns.isin([self.config.numerator, self.config.denominator])].tolist()
-            df_grouped = self.config.dataset.groupby(by=not_ratio_columns, as_index=False).agg({
-                self.config.numerator: 'sum',
-                self.config.denominator: 'sum'
+        if not self.config['is_grouped']:
+            not_ratio_columns = self.dataset.columns[~self.dataset.columns.isin([self.config['numerator'], self.config['denominator']])].tolist()
+            df_grouped = self.dataset.groupby(by=not_ratio_columns, as_index=False).agg({
+                self.config['numerator']: 'sum',
+                self.config['denominator']: 'sum'
             })
-            self.config.dataset = df_grouped
-        self._linearize(self.config.numerator, self.config.denominator)
+            self.dataset = df_grouped
+        self._linearize(self.config['numerator'], self.config['denominator'])
 
     def test_hypothesis(self, X: np.array = None, Y: np.array = None) -> Tuple[int, float, float]:
         """
@@ -453,20 +456,20 @@ class ABTest:
                         statistics,
                         p-value)
         """
-        X = self.config.control
-        Y = self.config.treatment
+        X = self.config['control']
+        Y = self.config['treatment']
 
         test_result: int = 0
-        pvalue: float = self.config.alpha + 0.01
+        pvalue: float = self.config['alpha'] + 0.01
         stat: float = 0
-        if self.config.metric_name == 'mean':
-            normality_passed = shapiro(X)[1] >= self.config.alpha and shapiro(Y)[1] >= self.config.alpha
+        if self.config['metric_name'] == 'mean':
+            normality_passed = shapiro(X)[1] >= self.config['alpha'] and shapiro(Y)[1] >= self.config['alpha']
             if not normality_passed:
                 warnings.warn('One or both distributions are not normally distributed')
-            stat, pvalue = ttest_ind(X, Y, equal_var=False, alternative=self.config.alternative)
-        elif self.config.metric_name == 'median':
-            stat, pvalue = mannwhitneyu(X, Y, alternative=self.config.alternative)
-        if pvalue <= self.config.alpha:
+            stat, pvalue = ttest_ind(X, Y, equal_var=False, alternative=self.config['alternative'])
+        elif self.config['metric_name'] == 'median':
+            stat, pvalue = mannwhitneyu(X, Y, alternative=self.config['alternative'])
+        if pvalue <= self.config['alpha']:
             test_result = 1
 
         return (test_result, stat, pvalue)
@@ -482,8 +485,8 @@ class ABTest:
         :param n_buckets: Number of buckets
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
-        X = self.config.control
-        Y = self.config.treatment
+        X = self.config['control']
+        Y = self.config['treatment']
 
         np.random.shuffle(X)
         np.random.shuffle(Y)
@@ -491,9 +494,9 @@ class ABTest:
         Y_new = np.array([ metric(y) for y in np.array_split(Y, n_buckets) ])
 
         test_result: int = 0
-        if shapiro(X_new)[1] >= self.config.alpha and shapiro(Y_new)[1] >= self.config.alpha:
-            _, pvalue = ttest_ind(X_new, Y_new, equal_var=False, alternative=self.config.alternative)
-            if pvalue <= self.config.alpha:
+        if shapiro(X_new)[1] >= self.config['alpha'] and shapiro(Y_new)[1] >= self.config['alpha']:
+            _, pvalue = ttest_ind(X_new, Y_new, equal_var=False, alternative=self.config['alternative'])
+            if pvalue <= self.config['alpha']:
                 test_result = 1
         else:
             def metric(X: np.array):
@@ -513,21 +516,21 @@ class ABTest:
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         metric_diffs: List[float] = []
-        X = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'A']
-        Y = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'B']
+        X = self.dataset.loc[self.dataset[self.config['group_col']] == 'A']
+        Y = self.dataset.loc[self.dataset[self.config['group_col']] == 'B']
         for _ in tqdm(range(n_boot_samples)):
             x_strata_metric = 0
             y_strata_metric = 0
             for strat in weights.keys():
-                X_strata = X.loc[X[strata_col] == strat, self.config.target]
-                Y_strata = Y.loc[Y[strata_col] == strat, self.config.target]
+                X_strata = X.loc[X[strata_col] == strat, self.config['target']]
+                Y_strata = Y.loc[Y[strata_col] == strat, self.config['target']]
                 x_strata_metric += (metric(np.random.choice(X_strata, size=X_strata.shape[0] // 2, replace=False)) * weights[strat])
                 y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.shape[0] // 2, replace=False)) * weights[strat])
             metric_diffs.append(metric(x_strata_metric) - metric(y_strata_metric))
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
-        left_quant = self.config.alpha / 2
-        right_quant = 1 - self.config.alpha / 2
+        left_quant = self.config['alpha'] / 2
+        right_quant = 1 - self.config['alpha'] / 2
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
         ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
 
@@ -545,18 +548,18 @@ class ABTest:
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Type I error rate
         """
-        X = self.config.control
-        Y = self.config.treatment
+        X = self.config['control']
+        Y = self.config['treatment']
 
         metric_diffs: List[float] = []
-        for _ in tqdm(range(self.config.n_boot_samples)):
+        for _ in tqdm(range(self.config['n_boot_samples'])):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
-        left_quant = self.config.alpha / 2
-        right_quant = 1 - self.config.alpha / 2
+        left_quant = self.config['alpha'] / 2
+        right_quant = 1 - self.config['alpha'] / 2
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
         ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
 
@@ -578,18 +581,27 @@ class ABTest:
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
-        X = self.config.control
-        Y = self.config.treatment
+        X = self.config['control']
+        Y = self.config['treatment']
 
         metric_diffs: List[float] = []
-        for _ in tqdm(range(self.config.n_boot_samples)):
+        for _ in tqdm(range(self.config['n_boot_samples'])):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
             metric_diffs.append( metric(x_boot) - metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
-        left_quant = self.config.alpha / 2
-        right_quant = 1 - self.config.alpha / 2
+        left_quant, right_quant = 0, 1
+        if self.config['alternative'] == 'two-sided':
+            left_quant = self.config['alpha'] / 2
+            right_quant = 1 - self.config['alpha'] / 2
+        elif self.config['alternative'] == 'less':
+            left_quant = self.config['alpha']
+            right_quant = 1
+        elif self.config['alternative'] == 'greater':
+            left_quant = 0
+            right_quant = 1 - self.config['alpha']
+
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
         ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
 
@@ -609,10 +621,10 @@ class ABTest:
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         if X is None or Y is None:
-            X = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'A',
-                                        self.config.target].to_numpy()
-            Y = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'B',
-                                        self.config.target].to_numpy()
+            X = self.dataset.loc[self.dataset[self.config['group_col']] == 'A',
+                                        self.config['target']].to_numpy()
+            Y = self.dataset.loc[self.dataset[self.config['group_col']] == 'B',
+                                        self.config['target']].to_numpy()
 
         T: int = 0
         for _ in range(n_boot_samples):
@@ -620,7 +632,7 @@ class ABTest:
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
 
             T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.shape[0] + np.var(y_boot) / y_boot.shape[0])
-            test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.config.alternative)
+            test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.config['alternative'])
 
             if (use_correction and (T_boot >= (test_res[1] / n_boot_samples))) or \
                     (not use_correction and (T_boot >= test_res[1])):
@@ -639,14 +651,14 @@ class ABTest:
         :param group_shares: Shares of A and B groups
         :return: Number of observations needed in each group
         """
-        control_share, treatment_share = split_ratios if split_ratios is not None else self.config.split_ratios
+        control_share, treatment_share = split_ratios if split_ratios is not None else self.config['split_ratios']
         if treatment_share == 0.5:
-            alpha: float = (1 - self.config.alpha / 2) if self.config.alternative == 'two-sided' else (1 - self.config.alpha)
-            n_samples: int = round(2 * (t.ppf(alpha) + t.ppf(1 - self.config.beta)) * std ** 2 / (effect_size ** 2), 0) + 1
+            alpha: float = (1 - self.config['alpha'] / 2) if self.config['alternative'] == 'two-sided' else (1 - self.config['alpha'])
+            n_samples: int = round(2 * (t.ppf(alpha) + t.ppf(1 - self.config['beta'])) * std ** 2 / (effect_size ** 2), 0) + 1
             return (n_samples, n_samples)
         else:
-            alpha: float = (1 - self.config.alpha / 2) if self.config.alternative == 'two-sided' else (1 - self.config.alpha)
-            n: int = round((((t.ppf(alpha) + t.ppf(1 - self.config.beta)) * std ** 2 / (effect_size ** 2))) \
+            alpha: float = (1 - self.config['alpha'] / 2) if self.config['alternative'] == 'two-sided' else (1 - self.config['alpha'])
+            n: int = round((((t.ppf(alpha) + t.ppf(1 - self.config['beta'])) * std ** 2 / (effect_size ** 2))) \
                       / (treatment_share * control_share), 0) + 1
             a_samples, b_samples = round(n * control_share, 0) + 1, round(n * treatment_share, 0) + 1
         return (a_samples, b_samples)
@@ -658,8 +670,8 @@ class ABTest:
         :param n_samples: Number of samples for each group
         :return: MDE, in absolute lift
         """
-        alpha: float = (1 - self.config.alpha / 2) if self.config.alternative == 'two-sided' else (1 - self.config.alpha)
-        mde: float = np.sqrt( 2 * (t.ppf(alpha) + t.ppf(1 - self.config.beta)) * std / n_samples )
+        alpha: float = (1 - self.config['alpha'] / 2) if self.config['alternative'] == 'two-sided' else (1 - self.config['alpha'])
+        mde: float = np.sqrt( 2 * (t.ppf(alpha) + t.ppf(1 - self.config['beta'])) * std / n_samples )
         return mde
 
     def mde_hyperopt(self, n_iter: int = 20000, strategy: str = 'simple_test', params: Dict[str, List[float]] = None,
@@ -668,8 +680,8 @@ class ABTest:
             split_rate, inc = params['split_rate'], params['inc']
             self._split_data(split_rate)
 
-            control = self.config.control
-            treatment = self.config.treatment
+            control = self.config['control']
+            treatment = self.config['treatment']
 
             treatment = self._add_increment('solid', treatment, inc)
             pvalue_mean = 0
@@ -702,15 +714,15 @@ class ABTest:
 
     def plot(self) -> None:
         gr = Graphics()
-        a = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'A',
-                                    self.config.target].to_numpy()
-        b = self.config.dataset.loc[self.config.dataset[self.config.group_col] == 'B',
-                                    self.config.target].to_numpy()
+        a = self.dataset.loc[self.dataset[self.config['group_col']] == 'A',
+                                    self.config['target']].to_numpy()
+        b = self.dataset.loc[self.dataset[self.config['group_col']] == 'B',
+                                    self.config['target']].to_numpy()
         gr.plot_experiment(a, b,
-                           self.config.alternative,
-                           self.config.metric_name,
-                           self.config.alpha,
-                           self.config.beta)
+                           self.config['alternative'],
+                           self.config['metric_name'],
+                           self.config['alpha'],
+                           self.config['beta'])
 
     def cuped(self):
         vr = VarianceReduction()
