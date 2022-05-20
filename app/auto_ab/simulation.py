@@ -157,6 +157,44 @@ class Simulation:
             csv_pd.to_csv(csv_path, index=False)
         return dict(imitation_log)
 
+    def mde_hyperopt(self, n_iter: int = 20000, strategy: str = 'simple_test', params: Dict[str, List[float]] = None,
+                     to_csv: bool = False, csv_path: str = None) -> None:
+        def objective(params) -> float:
+            split_rate, inc = params['split_rate'], params['inc']
+            self._split_data(split_rate)
+
+            control = self.config['control']
+            treatment = self.config['treatment']
+
+            treatment = self._add_increment('solid', treatment, inc)
+            pvalue_mean = 0
+            for it in range(n_iter):
+                pvalue_mean += self.test_hypothesis()
+            pvalue_mean /= n_iter
+            return -pvalue_mean
+
+        space = {}
+        for param, values in params.items():
+            space[param] = hp.uniform(param, values[0], values[1])
+            # space[param] = hp.choice(param, )
+
+        trials = Trials()
+        print('\nSpace')
+        print(space)
+        best = fmin(objective,
+                    space,
+                    algo=tpe.suggest,
+                    max_evals=10,
+                    trials=trials
+                    )
+        print('\nBest')
+        print(best)
+
+        # Get the values of the optimal parameters
+        best_params = space_eval(space, best)
+        print('\nBest params')
+        print(best_params)
+
 if __name__ == '__main__':
     stds = list(range(10, 30, 10))
     effect_sizes = list(range(10, 30, 10))

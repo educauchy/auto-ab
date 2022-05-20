@@ -154,6 +154,9 @@ class ABTest:
             self.config['metric_type']    = config['metric']['type']
             self.config['metric_name']    = config['metric']['name']
 
+            if self.config['metric_name'] == 'custom':
+                self.metric = lambda x: np.mean(x)
+
             if config['data']['path'] != '':
                 df: pd.DataFrame = self.load_dataset(config['data']['path'])
                 n_rows = df.shape[0] + 1 if config['data']['n_rows'] == -1 else config['data']['n_rows']
@@ -186,7 +189,9 @@ class ABTest:
             self.config['split_ratios']   = config['split_ratios']
             self.config['metric_type']    = config['metric_type']
             self.config['metric_name']    = config['metric_name']
-            self.config['split_ratios']   = config['split_ratios']
+
+            if self.config['metric_name'] == 'custom':
+                self.metric = lambda x: np.mean(x)
 
             if config['dataset'] != '':
                 self.dataset: pd.DataFrame = pd.DataFrame.from_dict(config['dataset'])
@@ -283,7 +288,7 @@ class ABTest:
                         self.dataset[self.config['numerator']] - K * self.dataset[self.config['denominator']]
             self.target = f"{self.config['numerator']}_{self.config['denominator']}"
 
-    def _delta_params(self) -> Tuple[float, float]:
+    def _delta_params(self, X: pd.DataFrame) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using delta approximation
         :param df: Pandas DataFrame of particular group (A, B, etc)
@@ -291,13 +296,11 @@ class ABTest:
         :param denominator: Ratio denominator column name
         :return: Tuple with mean and variance of ratio
         """
-        num = self.dataset[self.config['numerator']]
-        den = self.dataset[self.config['denominator']]
-        num_mean = num.mean()
-        num_var = num.var()
-        den_mean = den.mean()
-        den_var = den.var()
-        cov = self.dataset[[self.config['numerator'], self.config['denominator']]].cov().iloc[0, 1]
+        num = X[self.config['numerator']]
+        den = X[self.config['denominator']]
+        num_mean, den_mean = num.mean(), den.mean()
+        num_var, den_var = num.var(), den.var()
+        cov = X[[self.config['numerator'], self.config['denominator']]].cov().iloc[0, 1]
         n = len(num)
 
         bias_correction = (den_mean / num_mean ** 3) * (num_var / n) - cov / (n * num_mean ** 2)
@@ -406,8 +409,8 @@ class ABTest:
         X = self.dataset[self.dataset[self.config['group_col']] == 'A']
         Y = self.dataset[self.dataset[self.config['group_col']] == 'B']
 
-        A_mean, A_var = self._taylor_params(X, self.config['numerator'], self.config['denominator'])
-        B_mean, B_var = self._taylor_params(Y, self.config['numerator'], self.config['denominator'])
+        A_mean, A_var = self._taylor_params(X)
+        B_mean, B_var = self._taylor_params(Y)
         test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
@@ -423,8 +426,8 @@ class ABTest:
         X = self.dataset[self.dataset[self.config['group_col']] == 'A']
         Y = self.dataset[self.dataset[self.config['group_col']] == 'B']
 
-        A_mean, A_var = self._delta_params(X, self.config['numerator'], self.config['denominator'])
-        B_mean, B_var = self._delta_params(Y, self.config['numerator'], self.config['denominator'])
+        A_mean, A_var = self._delta_params(X)
+        B_mean, B_var = self._delta_params(Y)
         test_result: int = self._manual_ttest(A_mean, A_var, X.shape[0], B_mean, B_var, Y.shape[0])
 
         return test_result
@@ -446,9 +449,9 @@ class ABTest:
                 self.config['denominator']: 'sum'
             })
             self.dataset = df_grouped
-        self._linearize(self.config['numerator'], self.config['denominator'])
+        self._linearize()
 
-    def test_hypothesis(self, X: np.array = None, Y: np.array = None) -> Tuple[int, float, float]:
+    def test_hypothesis(self) -> Tuple[int, float, float]:
         """
         Perform Welch's t-test / Mann-Whitney test for means/medians
         :param X: Group A
@@ -461,8 +464,8 @@ class ABTest:
         Y = self.config['treatment']
 
         test_result: int = 0
-        pvalue: float = self.config['alpha'] + 0.01
-        stat: float = 0
+        pvalue: float = 1.0
+        stat: float = 0.0
         if self.config['metric_name'] == 'mean':
             normality_passed = shapiro(X)[1] >= self.config['alpha'] and shapiro(Y)[1] >= self.config['alpha']
             if not normality_passed:
@@ -475,9 +478,7 @@ class ABTest:
 
         return (test_result, stat, pvalue)
 
-    def test_hypothesis_buckets(self, X: np.array, Y: np.array,
-                                metric: Optional[Callable[[Any], float]] = None,
-                                n_buckets: int = 1000) -> int:
+    def test_hypothesis_buckets(self) -> int:
         """
         Perform buckets hypothesis testing
         :param X: Null hypothesis distribution
@@ -491,8 +492,8 @@ class ABTest:
 
         np.random.shuffle(X)
         np.random.shuffle(Y)
-        X_new = np.array([ metric(x) for x in np.array_split(X, n_buckets) ])
-        Y_new = np.array([ metric(y) for y in np.array_split(Y, n_buckets) ])
+        X_new = np.array([ self.metric(x) for x in np.array_split(X, self.config['n_buckets']) ])
+        Y_new = np.array([ self.metric(y) for y in np.array_split(Y, self.config['n_buckets']) ])
 
         test_result: int = 0
         if shapiro(X_new)[1] >= self.config['alpha'] and shapiro(Y_new)[1] >= self.config['alpha']:
@@ -503,13 +504,12 @@ class ABTest:
             def metric(X: np.array):
                 modes, _ = mode(X)
                 return sum(modes) / len(modes)
-            test_result = self.test_hypothesis_boot_confint(X_new, Y_new, metric=metric)
+            test_result = self.test_hypothesis_boot_confint()
 
         return test_result
 
-    def test_hypothesis_strat_confint(self, metric: Optional[Callable[[Any], float]] = None,
-                            strata_col: str = '', n_boot_samples: int = 5000,
-                            weights: Dict[str, float] = None) -> int:
+    def test_hypothesis_strat_confint(self, strata_col: str = '',
+                                    weights: Dict[str, float] = None) -> int:
         """
         Perform stratification with confidence interval
         :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
@@ -519,15 +519,15 @@ class ABTest:
         metric_diffs: List[float] = []
         X = self.dataset.loc[self.dataset[self.config['group_col']] == 'A']
         Y = self.dataset.loc[self.dataset[self.config['group_col']] == 'B']
-        for _ in tqdm(range(n_boot_samples)):
+        for _ in tqdm(range(self.config['n_boot_samples'])):
             x_strata_metric = 0
             y_strata_metric = 0
             for strat in weights.keys():
                 X_strata = X.loc[X[strata_col] == strat, self.config['target']]
                 Y_strata = Y.loc[Y[strata_col] == strat, self.config['target']]
-                x_strata_metric += (metric(np.random.choice(X_strata, size=X_strata.shape[0] // 2, replace=False)) * weights[strat])
-                y_strata_metric += (metric(np.random.choice(Y_strata, size=Y_strata.shape[0] // 2, replace=False)) * weights[strat])
-            metric_diffs.append(metric(x_strata_metric) - metric(y_strata_metric))
+                x_strata_metric += (self.metric(np.random.choice(X_strata, size=X_strata.shape[0] // 2, replace=False)) * weights[strat])
+                y_strata_metric += (self.metric(np.random.choice(Y_strata, size=Y_strata.shape[0] // 2, replace=False)) * weights[strat])
+            metric_diffs.append(self.metric(x_strata_metric) - self.metric(y_strata_metric))
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
         left_quant = self.config['alpha'] / 2
@@ -541,7 +541,7 @@ class ABTest:
 
         return test_result
 
-    def test_hypothesis_boot_est(self, metric: Optional[Callable[[Any], float]] = None) -> float:
+    def test_hypothesis_boot_est(self) -> float:
         """
         Perform bootstrap confidence interval with
         :param X: Null hypothesis distribution
@@ -556,7 +556,7 @@ class ABTest:
         for _ in tqdm(range(self.config['n_boot_samples'])):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
-            metric_diffs.append( metric(x_boot) - metric(y_boot) )
+            metric_diffs.append( self.metric(x_boot) - self.metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
         left_quant = self.config['alpha'] / 2
@@ -574,7 +574,7 @@ class ABTest:
 
         return false_positive
 
-    def test_hypothesis_boot_confint(self, metric: Optional[Callable[[Any], float]] = None) -> int:
+    def test_hypothesis_boot_confint(self) -> int:
         """
         Perform bootstrap confidence interval
         :param X: Null hypothesis distribution
@@ -589,20 +589,11 @@ class ABTest:
         for _ in tqdm(range(self.config['n_boot_samples'])):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
-            metric_diffs.append( metric(x_boot) - metric(y_boot) )
+            metric_diffs.append( self.metric(x_boot) - self.metric(y_boot) )
         pd_metric_diffs = pd.DataFrame(metric_diffs)
 
-        left_quant, right_quant = 0, 1
-        if self.config['alternative'] == 'two-sided':
-            left_quant = self.config['alpha'] / 2
-            right_quant = 1 - self.config['alpha'] / 2
-        elif self.config['alternative'] == 'less':
-            left_quant = self.config['alpha']
-            right_quant = 1
-        elif self.config['alternative'] == 'greater':
-            left_quant = 0
-            right_quant = 1 - self.config['alpha']
-
+        left_quant = self.config['alpha'] / 2
+        right_quant = 1 - self.config['alpha'] / 2
         ci = pd_metric_diffs.quantile([left_quant, right_quant])
         ci_left, ci_right = float(ci.iloc[0]), float(ci.iloc[1])
 
@@ -612,34 +603,28 @@ class ABTest:
 
         return test_result
 
-    def test_boot_hypothesis(self, X: np.array, Y: np.array,
-                             n_boot_samples: int = 5000,
-                             use_correction: bool = False) -> float:
+    def test_boot_hypothesis(self) -> float:
         """
         Perform T-test for independent samples with unequal number of observations and variance
         :param X: Null hypothesis distribution
         :param Y: Alternative hypothesis distribution
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
-        if X is None or Y is None:
-            X = self.dataset.loc[self.dataset[self.config['group_col']] == 'A',
-                                        self.config['target']].to_numpy()
-            Y = self.dataset.loc[self.dataset[self.config['group_col']] == 'B',
-                                        self.config['target']].to_numpy()
+        X = self.config['control']
+        Y = self.config['treatment']
 
         T: int = 0
-        for _ in range(n_boot_samples):
+        for _ in range(self.config['n_boot_samples']):
             x_boot = np.random.choice(X, size=X.shape[0], replace=True)
             y_boot = np.random.choice(Y, size=Y.shape[0], replace=True)
 
             T_boot = (np.mean(x_boot) - np.mean(y_boot)) / (np.var(x_boot) / x_boot.shape[0] + np.var(y_boot) / y_boot.shape[0])
             test_res = ttest_ind(x_boot, y_boot, equal_var=False, alternative=self.config['alternative'])
 
-            if (use_correction and (T_boot >= (test_res[1] / n_boot_samples))) or \
-                    (not use_correction and (T_boot >= test_res[1])):
+            if T_boot >= test_res[1]:
                 T += 1
 
-        pvalue = T / n_boot_samples
+        pvalue = T / self.config['n_boot_samples']
 
         return pvalue
 
@@ -675,51 +660,13 @@ class ABTest:
         mde: float = np.sqrt( 2 * (t.ppf(alpha) + t.ppf(1 - self.config['beta'])) * std / n_samples )
         return mde
 
-    def mde_hyperopt(self, n_iter: int = 20000, strategy: str = 'simple_test', params: Dict[str, List[float]] = None,
-                     to_csv: bool = False, csv_path: str = None) -> None:
-        def objective(params) -> float:
-            split_rate, inc = params['split_rate'], params['inc']
-            self._split_data(split_rate)
-
-            control = self.config['control']
-            treatment = self.config['treatment']
-
-            treatment = self._add_increment('solid', treatment, inc)
-            pvalue_mean = 0
-            for it in range(n_iter):
-                pvalue_mean += self.test_hypothesis(control, treatment)
-            pvalue_mean /= n_iter
-            return -pvalue_mean
-
-        space = {}
-        for param, values in params.items():
-            space[param] = hp.uniform(param, values[0], values[1])
-            # space[param] = hp.choice(param, )
-
-        trials = Trials()
-        print('\nSpace')
-        print(space)
-        best = fmin(objective,
-                    space,
-                    algo=tpe.suggest,
-                    max_evals=10,
-                    trials=trials
-                    )
-        print('\nBest')
-        print(best)
-
-        # Get the values of the optimal parameters
-        best_params = space_eval(space, best)
-        print('\nBest params')
-        print(best_params)
 
     def plot(self) -> None:
         gr = Graphics()
-        a = self.dataset.loc[self.dataset[self.config['group_col']] == 'A',
-                                    self.config['target']].to_numpy()
-        b = self.dataset.loc[self.dataset[self.config['group_col']] == 'B',
-                                    self.config['target']].to_numpy()
-        gr.plot_experiment(a, b,
+        a = self.__get_group('A')
+        b = self.__get_group('B')
+
+        gr.plot_mean_experiment(a, b,
                            self.config['alternative'],
                            self.config['metric_name'],
                            self.config['alpha'],
@@ -776,9 +723,7 @@ class ABTest:
 
     def __bucketize(self, X: pd.DataFrame):
         np.random.shuffle(X)
-        print(np.array_split(X, self.config['n_buckets']))
         X_new = np.array([ self.__metric_calc(x) for x in np.array_split(X, self.config['n_buckets']) ])
-        print(X_new)
         return X_new
 
     def bucketing(self):
