@@ -724,6 +724,11 @@ class ABTest:
                            self.config['alpha'],
                            self.config['beta'])
 
+    def __get_group(self, group_label: str = 'A'):
+        group = self.dataset.loc[self.dataset[self.config['group_col']] == group_label, \
+                                            self.config['target']].to_numpy()
+        return group
+
     def cuped(self):
         vr = VarianceReduction()
         result_df = vr.cuped(self.dataset,
@@ -733,6 +738,9 @@ class ABTest:
 
         self.config['dataset'] = result_df.to_dict()
         self.dataset = result_df
+
+        self.config['control'] = self.__get_group('A')
+        self.config['treatment'] = self.__get_group('B')
 
         return ABTest(self.config)
 
@@ -747,6 +755,9 @@ class ABTest:
 
         self.config['dataset'] = result_df.to_dict()
         self.dataset = result_df
+
+        self.config['control'] = self.__get_group('A')
+        self.config['treatment'] = self.__get_group('B')
 
         return ABTest(self.config)
 
