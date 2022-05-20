@@ -1,3 +1,4 @@
+import copy
 import warnings
 
 import numpy as np
@@ -736,13 +737,15 @@ class ABTest:
                             groups=self.config['group_col'],
                             covariate=self.config['covariate'])
 
-        self.config['dataset'] = result_df.to_dict()
+        self.config_new = copy.deepcopy(self.config)
+
+        self.config_new['dataset'] = result_df.to_dict()
         self.dataset = result_df
 
-        self.config['control'] = self.__get_group('A')
-        self.config['treatment'] = self.__get_group('B')
+        self.config_new['control'] = self.__get_group('A')
+        self.config_new['treatment'] = self.__get_group('B')
 
-        return ABTest(self.config)
+        return ABTest(self.config_new)
 
     def cupac(self):
         vr = VarianceReduction()
@@ -753,13 +756,15 @@ class ABTest:
                                factors_now=self.config['predictors'],
                                groups=self.config['group_col'])
 
-        self.config['dataset'] = result_df.to_dict()
+        self.config_new = copy.deepcopy(self.config)
+
+        self.config_new['dataset'] = result_df.to_dict()
         self.dataset = result_df
 
-        self.config['control'] = self.__get_group('A')
-        self.config['treatment'] = self.__get_group('B')
+        self.config_new['control'] = self.__get_group('A')
+        self.config_new['treatment'] = self.__get_group('B')
 
-        return ABTest(self.config)
+        return ABTest(self.config_new)
 
     def __metric_calc(self, X: Union[List[Any], np.array]):
         if self.config['metric_name'] == 'mean':
@@ -777,10 +782,12 @@ class ABTest:
         return X_new
 
     def bucketing(self):
-        self.config['control']   = self.__bucketize(self.config['control'])
-        self.config['treatment'] = self.__bucketize(self.config['treatment'])
+        self.config_new = copy.deepcopy(self.config)
 
-        return ABTest(self.config)
+        self.config_new['control']   = self.__bucketize(self.config['control'])
+        self.config_new['treatment'] = self.__bucketize(self.config['treatment'])
+
+        return ABTest(self.config_new)
 
 
 if __name__ == '__main__':
