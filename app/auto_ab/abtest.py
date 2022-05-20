@@ -291,9 +291,7 @@ class ABTest:
     def _delta_params(self, X: pd.DataFrame) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using delta approximation
-        :param df: Pandas DataFrame of particular group (A, B, etc)
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
+        :param X: Pandas DataFrame of particular group (A, B, etc)
         :return: Tuple with mean and variance of ratio
         """
         num = X[self.config['numerator']]
@@ -309,20 +307,18 @@ class ABTest:
 
         return (mean, var)
 
-    def _taylor_params(self) -> Tuple[float, float]:
+    def _taylor_params(self, X: pd.DataFrame) -> Tuple[float, float]:
         """
         Calculated expectation and variance for ratio metric using Taylor expansion approximation
-        :param df: Pandas DataFrame of particular group (A, B, etc)
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
+        :param X: Pandas DataFrame of particular group (A, B, etc)
         :return: Tuple with mean and variance of ratio
         """
-        num = self.dataset[self.config['numerator']]
-        den = self.dataset[self.config['denominator']]
-        mean = num.mean() / den.mean() - self.dataset[[self.config['numerator'], self.config['denominator']]].cov()[0, 1] \
+        num = X[self.config['numerator']]
+        den = X[self.config['denominator']]
+        mean = num.mean() / den.mean() - X[[self.config['numerator'], self.config['denominator']]].cov()[0, 1] \
                / (den.mean() ** 2) + den.var() * num.mean() / (den.mean() ** 3)
         var = (num.mean() ** 2) / (den.mean() ** 2) * (num.var() / (num.mean() ** 2) - \
-                2 * self.dataset[[self.config['numerator'], self.config['denominator']]].cov()[0, 1]) \
+                2 * X[[self.config['numerator'], self.config['denominator']]].cov()[0, 1]) \
                 / (num.mean() * den.mean() + den.var() / (den.mean() ** 2))
 
         return (mean, var)
@@ -335,10 +331,6 @@ class ABTest:
         """
         Put dataset for analysis
         :param X: Pandas DataFrame for analysis
-        :param id_col: Id column name
-        :param target: Target column name
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
         """
         self.dataset = X
         self.config['dataset'] = X.to_dict()
@@ -347,10 +339,6 @@ class ABTest:
         """
         Load dataset for analysis
         :param path: Path to the dataset for analysis
-        :param id_col: Id column name
-        :param target: Target column name
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
         """
         return self._read_file(path)
 
@@ -402,8 +390,6 @@ class ABTest:
         Calculate expectation and variance of ratio for each group
         and then use t-test for hypothesis testing
         Source: http://www.stat.cmu.edu/~hseltman/files/ratio.pdf
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
         X = self.dataset[self.dataset[self.config['group_col']] == 'A']
@@ -419,8 +405,6 @@ class ABTest:
         """
         Delta method with bias correction for ratios
         Source: https://arxiv.org/pdf/1803.06336.pdf
-        :param X: Group A
-        :param Y: Group B
         :return: Hypothesis test result: 0 - cannot reject H0, 1 - reject H0
         """
         X = self.dataset[self.dataset[self.config['group_col']] == 'A']
@@ -438,8 +422,6 @@ class ABTest:
         s.t. numerator for user = sum of numerators for user for different time periods
         and denominator for user = sum of denominators for user for different time periods
         Source: https://research.yandex.com/publications/148
-        :param numerator: Ratio numerator column name
-        :param denominator: Ratio denominator column name
         :return: None
         """
         if not self.config['is_grouped']:
@@ -454,8 +436,6 @@ class ABTest:
     def test_hypothesis(self) -> Tuple[int, float, float]:
         """
         Perform Welch's t-test / Mann-Whitney test for means/medians
-        :param X: Group A
-        :param Y: Group B
         :return: Tuple: (test result: 0 - cannot reject H0, 1 - reject H0,
                         statistics,
                         p-value)
@@ -481,10 +461,6 @@ class ABTest:
     def test_hypothesis_buckets(self) -> int:
         """
         Perform buckets hypothesis testing
-        :param X: Null hypothesis distribution
-        :param Y: Alternative hypothesis distribution
-        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
-        :param n_buckets: Number of buckets
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         X = self.config['control']
@@ -512,8 +488,6 @@ class ABTest:
                                     weights: Dict[str, float] = None) -> int:
         """
         Perform stratification with confidence interval
-        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
-        :param strata_col: Column name of strata column
         :return: Test result: 1 - significant different, 0 - insignificant difference
         """
         metric_diffs: List[float] = []
@@ -544,9 +518,6 @@ class ABTest:
     def test_hypothesis_boot_est(self) -> float:
         """
         Perform bootstrap confidence interval with
-        :param X: Null hypothesis distribution
-        :param Y: Alternative hypothesis distribution
-        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Type I error rate
         """
         X = self.config['control']
@@ -577,9 +548,6 @@ class ABTest:
     def test_hypothesis_boot_confint(self) -> int:
         """
         Perform bootstrap confidence interval
-        :param X: Null hypothesis distribution
-        :param Y: Alternative hypothesis distribution
-        :param metric: Custom metric (mean, median, percentile (1, 2, ...), etc
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         X = self.config['control']
@@ -606,8 +574,6 @@ class ABTest:
     def test_boot_hypothesis(self) -> float:
         """
         Perform T-test for independent samples with unequal number of observations and variance
-        :param X: Null hypothesis distribution
-        :param Y: Alternative hypothesis distribution
         :returns: Ratio of rejected H0 hypotheses to number of all tests
         """
         X = self.config['control']
@@ -646,8 +612,8 @@ class ABTest:
             alpha: float = (1 - self.config['alpha'] / 2) if self.config['alternative'] == 'two-sided' else (1 - self.config['alpha'])
             n: int = round((((t.ppf(alpha) + t.ppf(1 - self.config['beta'])) * std ** 2 / (effect_size ** 2))) \
                       / (treatment_share * control_share), 0) + 1
-            a_samples, b_samples = round(n * control_share, 0) + 1, round(n * treatment_share, 0) + 1
-        return (a_samples, b_samples)
+            a_samples, b_samples = int(round(n * control_share, 0) + 1), int(round(n * treatment_share, 0) + 1)
+            return (a_samples, b_samples)
 
     def mde(self, std: float = None, n_samples: int = None) -> float:
         """
@@ -662,15 +628,15 @@ class ABTest:
 
 
     def plot(self) -> None:
-        gr = Graphics()
         a = self.__get_group('A')
         b = self.__get_group('B')
 
-        gr.plot_mean_experiment(a, b,
-                           self.config['alternative'],
-                           self.config['metric_name'],
-                           self.config['alpha'],
-                           self.config['beta'])
+        if self.config['metric_name'] == 'mean':
+            Graphics().plot_mean_experiment(a, b,
+                               self.config['alternative'],
+                               self.config['metric_name'],
+                               self.config['alpha'],
+                               self.config['beta'])
 
     def __get_group(self, group_label: str = 'A'):
         group = self.dataset.loc[self.dataset[self.config['group_col']] == group_label, \
